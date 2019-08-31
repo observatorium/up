@@ -145,7 +145,6 @@ func main() {
 	}
 	{
 		t := time.NewTicker(period)
-		stop := make(chan struct{})
 		bg, cancel := context.WithCancel(context.Background())
 		g.Add(func() error {
 			level.Info(logger).Log("msg", "starting the remote-write client")
@@ -157,14 +156,13 @@ func main() {
 						level.Error(logger).Log("msg", "failed to make request", "err", err)
 					}
 					cancel()
-				case <-stop:
+				case <-bg.Done():
 					return nil
 				}
 			}
 		}, func(_ error) {
 			t.Stop()
 			cancel()
-			close(stop)
 		})
 	}
 
