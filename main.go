@@ -172,14 +172,15 @@ func main() {
 }
 
 func generate(labels []prompb.Label) *prompb.WriteRequest {
+	now := time.Now().UnixNano() / int64(time.Millisecond)
 	w := prompb.WriteRequest{
 		Timeseries: []prompb.TimeSeries{
 			{
 				Labels: labels,
 				Samples: []prompb.Sample{
 					{
-						Value:     1,
-						Timestamp: time.Now().UnixNano() / int64(time.Millisecond),
+						Value:     float64(now),
+						Timestamp: now,
 					},
 				},
 			},
