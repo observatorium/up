@@ -6,6 +6,7 @@ import (
 	"flag"
 	stdlog "log"
 	"net/http"
+	"net/http/pprof"
 	"net/url"
 	"os"
 	"os/signal"
@@ -125,6 +126,8 @@ func main() {
 	{
 		router := http.NewServeMux()
 		router.Handle("/metrics", promhttp.InstrumentMetricHandler(reg, promhttp.HandlerFor(reg, promhttp.HandlerOpts{})))
+		router.HandleFunc("/debug/pprof/", pprof.Index)
+
 		srv := &http.Server{Addr: opts.Listen, Handler: router}
 
 		g.Add(func() error {
