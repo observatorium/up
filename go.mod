@@ -12,3 +12,5 @@ require (
 	github.com/prometheus/common v0.6.0
 	github.com/prometheus/prometheus v0.0.0-20190819201610-48b2c9c8eae2
 )
+
+go 1.13
