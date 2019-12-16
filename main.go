@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"flag"
+	"fmt"
 	stdlog "log"
 	"net/http"
 	"net/http/pprof"
@@ -21,6 +22,8 @@ import (
 	"github.com/golang/snappy"
 	"github.com/oklog/run"
 	"github.com/pkg/errors"
+	promapi "github.com/prometheus/client_golang/api"
+	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/model"
@@ -34,11 +37,17 @@ var (
 	},
 		[]string{"result"},
 	)
+	metricValueDifference = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "up_metric_value_difference",
+		Help:    "The time difference of the current time stamp and the time stamp in the metrics value",
+		Buckets: prometheus.LinearBuckets(4, 0.25, 16),
+	})
 )
 
 type labelArg []prompb.Label
 
 func (la *labelArg) String() string {
+
 	var ls []string
 	for _, l := range *la {
 		ls = append(ls, l.Name+"="+l.Value)
@@ -68,15 +77,17 @@ func (la *labelArg) Set(v string) error {
 
 func main() {
 	opts := struct {
-		Endpoint string
-		Labels   labelArg
-		Listen   string
-		Name     string
-		Period   string
-		Token    string
+		EndpointWrite string
+		EndpointRead  string
+		Labels        labelArg
+		Listen        string
+		Name          string
+		Period        string
+		Token         string
 	}{}
 
-	flag.StringVar(&opts.Endpoint, "endpoint", "", "The endpoint to which to make remote-write requests.")
+	flag.StringVar(&opts.EndpointWrite, "endpoint-write", "", "The endpoint to which to make remote-write requests.")
+	flag.StringVar(&opts.EndpointRead, "endpoint-read", "", "The endpoint to which to make query requests to.")
 	flag.Var(&opts.Labels, "labels", "The labels that should be applied to remote-write requests.")
 	flag.StringVar(&opts.Listen, "listen", ":8080", "The address on which internal server runs.")
 	flag.StringVar(&opts.Name, "name", "up", "The name of the metric to send in remote-write requests.")
@@ -88,11 +99,17 @@ func main() {
 	logger = log.WithPrefix(logger, "ts", log.DefaultTimestampUTC)
 	logger = log.WithPrefix(logger, "caller", log.DefaultCaller)
 
-	endpoint, err := url.ParseRequestURI(opts.Endpoint)
+	endpointWrite, err := url.ParseRequestURI(opts.EndpointWrite)
 	if err != nil {
-		level.Error(logger).Log("msg", "--endpoint is invalid", "err", err)
+		level.Error(logger).Log("msg", "--endpoint-write is invalid", "err", err)
 		return
 	}
+	endpointRead, err := url.ParseRequestURI(opts.EndpointRead)
+	if err != nil {
+		level.Error(logger).Log("msg", "--endpoint-read is invalid", "err", err)
+		return
+	}
+
 	period, err := time.ParseDuration(opts.Period)
 	if err != nil {
 		level.Error(logger).Log("msg", "--period is invalid", "err", err)
@@ -108,6 +125,7 @@ func main() {
 		prometheus.NewGoCollector(),
 		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
 		remoteWriteRequests,
+		metricValueDifference,
 	)
 
 	var g run.Group
@@ -119,7 +137,7 @@ func main() {
 			<-sig
 			return nil
 		}, func(_ error) {
-			level.Info(logger).Log("msg", "caught interrrupt")
+			level.Info(logger).Log("msg", "caught interrupt")
 			close(sig)
 		})
 	}
@@ -148,22 +166,42 @@ func main() {
 	}
 	{
 		t := time.NewTicker(period)
-		bg, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(context.Background())
+
 		g.Add(func() error {
 			level.Info(logger).Log("msg", "starting the remote-write client")
 			for {
 				select {
 				case <-t.C:
-					ctx, cancel := context.WithTimeout(bg, period)
-					if err := post(ctx, endpoint, opts.Token, generate(opts.Labels)); err != nil {
+					if err := write(ctx, endpointWrite, opts.Token, generate(opts.Labels)); err != nil {
 						level.Error(logger).Log("msg", "failed to make request", "err", err)
 					}
-					cancel()
-				case <-bg.Done():
+				case <-ctx.Done():
 					return nil
 				}
 			}
 		}, func(_ error) {
+			t.Stop()
+			cancel()
+		})
+	}
+	{
+		t := time.NewTicker(period)
+		ctx, cancel := context.WithCancel(context.Background())
+
+		g.Add(func() error {
+			level.Info(logger).Log("msg", "start querying for metrics")
+			for {
+				select {
+				case <-t.C:
+					if err := read(ctx, endpointRead, opts.Labels); err != nil {
+						level.Error(logger).Log("msg", "failed to query", "err", err)
+					}
+				case <-ctx.Done():
+					return nil
+				}
+			}
+		}, func(err error) {
 			t.Stop()
 			cancel()
 		})
@@ -174,25 +212,61 @@ func main() {
 	}
 }
 
+func read(ctx context.Context, endpoint *url.URL, labels []prompb.Label) error {
+	client, err := promapi.NewClient(promapi.Config{Address: endpoint.String()})
+	if err != nil {
+		return err
+	}
+	a := promv1.NewAPI(client)
+
+	var labelSelectors []string
+	for _, label := range labels {
+		labelSelectors = append(labelSelectors, fmt.Sprintf(`%s="%s"`, label.Name, label.Value))
+	}
+	query := fmt.Sprintf("{%s}", strings.Join(labelSelectors, ","))
+
+	value, _, err := a.Query(ctx, query, time.Now().Add(-5*time.Second))
+	if err != nil {
+		return err
+	}
+
+	vec := value.(model.Vector)
+	if len(vec) != 1 {
+		return fmt.Errorf("expected one metric, got %d", len(vec))
+	}
+
+	t := time.Unix(int64(vec[0].Value/1000), 0)
+
+	diffSeconds := time.Now().Sub(t).Seconds()
+
+	metricValueDifference.Observe(diffSeconds)
+
+	if diffSeconds > 10 {
+		return fmt.Errorf("metric value is too old")
+	}
+
+	return nil
+}
+
 func generate(labels []prompb.Label) *prompb.WriteRequest {
-	now := time.Now().UnixNano() / int64(time.Millisecond)
-	w := prompb.WriteRequest{
+	timestamp := time.Now().UnixNano() / int64(time.Millisecond)
+
+	return &prompb.WriteRequest{
 		Timeseries: []prompb.TimeSeries{
 			{
 				Labels: labels,
 				Samples: []prompb.Sample{
 					{
-						Value:     float64(now),
-						Timestamp: now,
+						Value:     float64(timestamp),
+						Timestamp: timestamp,
 					},
 				},
 			},
 		},
 	}
-	return &w
 }
 
-func post(ctx context.Context, endpoint *url.URL, token string, wreq *prompb.WriteRequest) error {
+func write(ctx context.Context, endpoint *url.URL, token string, wreq *prompb.WriteRequest) error {
 	var (
 		buf []byte
 		err error
