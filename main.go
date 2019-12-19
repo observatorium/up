@@ -112,10 +112,14 @@ func main() {
 		level.Error(logger).Log("msg", "--endpoint-write is invalid", "err", err)
 		return
 	}
-	endpointRead, err := url.ParseRequestURI(opts.EndpointRead)
-	if err != nil {
-		level.Error(logger).Log("msg", "--endpoint-read is invalid", "err", err)
-		return
+
+	var endpointRead *url.URL
+	if opts.EndpointRead != "" {
+		endpointRead, err = url.ParseRequestURI(opts.EndpointRead)
+		if err != nil {
+			level.Error(logger).Log("msg", "--endpoint-read is invalid", "err", err)
+			return
+		}
 	}
 
 	opts.Labels = append(opts.Labels, prompb.Label{
@@ -146,7 +150,7 @@ func main() {
 		}, func(_ error) {
 			close(sig)
 
-			success, errors := successerrors()
+			success, errors := successerrors(logger)
 			level.Info(logger).Log("msg", "number of requests", "success", success, "errors", errors)
 		})
 	}
@@ -205,31 +209,33 @@ func main() {
 
 		t := time.NewTicker(opts.Period)
 
-		g.Add(func() error {
-			level.Info(logger).Log("msg", "start querying for metrics")
-			for {
-				select {
-				case <-t.C:
-					if err := read(ctx, endpointRead, opts.Labels, opts.Latency); err != nil {
-						queryResponses.WithLabelValues("error").Inc()
-						level.Error(logger).Log("msg", "failed to query", "err", err)
-					} else {
-						queryResponses.WithLabelValues("success").Inc()
-					}
-				case <-ctx.Done():
-					success, errors := successerrors()
-					ratio := success / (success + errors)
+		if opts.EndpointRead != "" {
+			g.Add(func() error {
+				level.Info(logger).Log("msg", "start querying for metrics")
+				for {
+					select {
+					case <-t.C:
+						if err := read(ctx, endpointRead, opts.Labels, opts.Latency); err != nil {
+							queryResponses.WithLabelValues("error").Inc()
+							level.Error(logger).Log("msg", "failed to query", "err", err)
+						} else {
+							queryResponses.WithLabelValues("success").Inc()
+						}
+					case <-ctx.Done():
+						success, errors := successerrors(logger)
+						ratio := success / (success + errors)
 
-					if ratio < opts.SuccessThreshold {
-						return fmt.Errorf("failed with less than %2.f%% success ratio - actual %2.f%%", opts.SuccessThreshold*100, ratio*100)
+						if ratio < opts.SuccessThreshold {
+							return fmt.Errorf("failed with less than %2.f%% success ratio - actual %2.f%%", opts.SuccessThreshold*100, ratio*100)
+						}
+						return nil
 					}
-					return nil
 				}
-			}
-		}, func(err error) {
-			t.Stop()
-			cancel()
-		})
+			}, func(err error) {
+				t.Stop()
+				cancel()
+			})
+		}
 	}
 
 	if err := g.Run(); err != nil {
@@ -325,7 +331,7 @@ func write(ctx context.Context, endpoint *url.URL, token string, wreq *prompb.Wr
 	return nil
 }
 
-func successerrors() (float64, float64) {
+func successerrors(logger log.Logger) (float64, float64) {
 	metrics := make(chan prometheus.Metric, 2)
 	queryResponses.Collect(metrics)
 	close(metrics)
@@ -334,7 +340,13 @@ func successerrors() (float64, float64) {
 
 	for m := range metrics {
 		m1 := &dto.Metric{}
-		_ = m.Write(m1)
+		err := m.Write(m1)
+		if err != nil {
+			level.Warn(logger).Log(
+				"msg", "cannot read success and error count from prometheus counter",
+				"err", err,
+			)
+		}
 		for _, l := range m1.Label {
 			switch *l.Value {
 			case "error":
