@@ -263,7 +263,7 @@ func read(ctx context.Context, endpoint *url.URL, labels []prompb.Label, latency
 
 	t := time.Unix(int64(vec[0].Value/1000), 0)
 
-	diffSeconds := time.Now().Sub(t).Seconds()
+	diffSeconds := time.Since(t).Seconds()
 
 	metricValueDifference.Observe(diffSeconds)
 
