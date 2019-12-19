@@ -4,6 +4,10 @@ UP is a simple client that makes Prometheus remote-write requests.
 The client writes the specified metric at the chosen interval.
 The value of the metric will always be the current timestamp in milliseconds.
 
+It can also read the value back and compare it against the current time.
+If the duration is greater than 0s, it will evaluate number of errors and success 
+in the given duration against a percentage threshold and exit with zero or non-zero.
+
 [![Build Status](https://cloud.drone.io/api/badges/observatorium/up/status.svg)](https://cloud.drone.io/observatorium/up)
 
 ## Getting Started
