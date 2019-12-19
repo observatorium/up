@@ -38,11 +38,11 @@ var (
 	}, []string{"result"})
 	queryResponses = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "up_queries_total",
-		Help: "The total number of queries made",
+		Help: "The total number of queries made.",
 	}, []string{"result"})
 	metricValueDifference = prometheus.NewHistogram(prometheus.HistogramOpts{
 		Name:    "up_metric_value_difference",
-		Help:    "The time difference of the current time stamp and the time stamp in the metrics value",
+		Help:    "The time difference between the current timestamp and the timestamp in the metrics value.",
 		Buckets: prometheus.LinearBuckets(4, 0.25, 16),
 	})
 )
@@ -50,7 +50,6 @@ var (
 type labelArg []prompb.Label
 
 func (la *labelArg) String() string {
-
 	var ls []string
 	for _, l := range *la {
 		ls = append(ls, l.Name+"="+l.Value)
@@ -80,16 +79,16 @@ func (la *labelArg) Set(v string) error {
 
 func main() {
 	opts := struct {
-		EndpointWrite   string
-		EndpointRead    string
-		Labels          labelArg
-		Listen          string
-		Name            string
-		Token           string
-		Period          time.Duration
-		Duration        time.Duration
-		SuccessTreshold float64
-		Latency         time.Duration
+		EndpointWrite    string
+		EndpointRead     string
+		Labels           labelArg
+		Listen           string
+		Name             string
+		Token            string
+		Period           time.Duration
+		Duration         time.Duration
+		SuccessThreshold float64
+		Latency          time.Duration
 	}{}
 
 	flag.StringVar(&opts.EndpointWrite, "endpoint-write", "", "The endpoint to which to make remote-write requests.")
@@ -99,9 +98,9 @@ func main() {
 	flag.StringVar(&opts.Name, "name", "up", "The name of the metric to send in remote-write requests.")
 	flag.StringVar(&opts.Token, "token", "", "The bearer token to set in the authorization header on remote-write requests.")
 	flag.DurationVar(&opts.Period, "period", 5*time.Second, "The time to wait between remote-write requests.")
-	flag.DurationVar(&opts.Duration, "duration", 5*time.Minute, "The duration of the up command to run until it stops")
-	flag.Float64Var(&opts.SuccessTreshold, "treshold", 0.9, "The percentage of successful requests needed to succeed overall. 0 - 1")
-	flag.DurationVar(&opts.Latency, "latency", 15*time.Second, "The maximum allowable latency between writing and reading")
+	flag.DurationVar(&opts.Duration, "duration", 5*time.Minute, "The duration of the up command to run until it stops.")
+	flag.Float64Var(&opts.SuccessThreshold, "threshold", 0.9, "The percentage of successful requests needed to succeed overall. 0 - 1.")
+	flag.DurationVar(&opts.Latency, "latency", 15*time.Second, "The maximum allowable latency between writing and reading.")
 	flag.Parse()
 
 	logger := log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
@@ -221,8 +220,8 @@ func main() {
 					success, errors := successerrors()
 					ratio := success / (success + errors)
 
-					if ratio < opts.SuccessTreshold {
-						return fmt.Errorf("failed with less than %2.f%% success ratio - actual %2.f%%", opts.SuccessTreshold*100, ratio*100)
+					if ratio < opts.SuccessThreshold {
+						return fmt.Errorf("failed with less than %2.f%% success ratio - actual %2.f%%", opts.SuccessThreshold*100, ratio*100)
 					}
 					return nil
 				}
