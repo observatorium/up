@@ -306,7 +306,7 @@ func parseOptions() (options, error) {
 	return opts, err
 }
 
-func read(ctx context.Context, endpoint fmt.Stringer, labels []prompb.Label, ago time.Duration, latency time.Duration, m metrics) error {
+func read(ctx context.Context, endpoint fmt.Stringer, labels []prompb.Label, ago, latency time.Duration, m metrics) error {
 	client, err := promapi.NewClient(promapi.Config{Address: endpoint.String()})
 	if err != nil {
 		return err
