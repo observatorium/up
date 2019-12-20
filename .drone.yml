@@ -34,6 +34,13 @@ steps:
     GO111MODULE: on
     GOPROXY: https://proxy.golang.org
 
+- name: generate
+  pull: always
+  image: golang:1.13
+  commands:
+    - make README.md
+    - git diff --exit-code
+
 - name: tags
   image: golang:1.13
   commands:
