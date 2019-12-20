@@ -70,9 +70,8 @@ func (la *labelArg) Set(v string) error {
 }
 
 type options struct {
-	WriteEndpoint *url.URL
-	ReadAddress   *url.URL
-	// ReadEndpoint     *url.URL
+	WriteEndpoint    *url.URL
+	AddressRead      *url.URL
 	Labels           labelArg
 	Listen           string
 	Name             string
@@ -169,7 +168,7 @@ func main() {
 		})
 	}
 	{
-		if opts.ReadAddress != nil {
+		if opts.AddressRead != nil {
 			logger := log.With(logger, "component", "querier")
 			t := time.NewTicker(opts.Period)
 
@@ -188,7 +187,7 @@ func main() {
 				for {
 					select {
 					case <-t.C:
-						if err := read(ctx, opts.ReadAddress, opts.Labels, -1*(opts.InitialQueryWait-opts.Period), opts.Latency, m); err != nil {
+						if err := read(ctx, opts.AddressRead, opts.Labels, -1*(opts.InitialQueryWait-opts.Period), opts.Latency, m); err != nil {
 							m.queryResponses.WithLabelValues("error").Inc()
 							level.Error(logger).Log("msg", "failed to query", "err", err)
 						} else {
@@ -243,7 +242,7 @@ func registerMetrics(reg *prometheus.Registry, opts options) metrics {
 	)
 
 	// Used for successerrors reporting.
-	if opts.ReadAddress != nil {
+	if opts.AddressRead != nil {
 		m.reporterCounter = m.queryResponses
 	} else {
 		m.reporterCounter = m.remoteWriteRequests
@@ -255,13 +254,14 @@ func registerMetrics(reg *prometheus.Registry, opts options) metrics {
 func parseOptions() (options, error) {
 	var (
 		rawEndpointWrite string
-		rawEndpointRead  string
+		rawAddressRead   string
 	)
 
 	opts := options{}
 
 	flag.StringVar(&rawEndpointWrite, "endpoint-write", "", "The endpoint to which to make remote-write requests.")
-	flag.StringVar(&rawEndpointRead, "endpoint-read", "", "The endpoint to which to make query requests to.")
+	flag.StringVar(&rawAddressRead, "address-read", "",
+		"The base address to which to make query requests to. (/api/v1/query* will be appended to given address)")
 	flag.Var(&opts.Labels, "labels", "The labels that should be applied to remote-write requests.")
 	flag.StringVar(&opts.Listen, "listen", ":8080", "The address on which internal server runs.")
 	flag.StringVar(&opts.Name, "name", "up", "The name of the metric to send in remote-write requests.")
@@ -280,15 +280,15 @@ func parseOptions() (options, error) {
 
 	opts.WriteEndpoint = endpointWrite
 
-	var endpointRead *url.URL
-	if rawEndpointRead != "" {
-		endpointRead, err = url.ParseRequestURI(rawEndpointRead)
+	var addressRead *url.URL
+	if rawAddressRead != "" {
+		addressRead, err = url.ParseRequestURI(rawAddressRead)
 		if err != nil {
 			return opts, fmt.Errorf("--endpoint-read is invalid: %w", err)
 		}
 	}
 
-	opts.ReadAddress = endpointRead
+	opts.AddressRead = addressRead
 
 	if opts.Latency <= opts.Period {
 		return opts, errors.New("--latency cannot be less than period")

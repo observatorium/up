@@ -31,12 +31,14 @@ docker run --rm -p 8080:8080 quay.io/observatorium/up --endpoint=https://example
 [embedmd]:# (tmp/help.txt)
 ```txt
 Usage of ./up:
+  -address-read string
+    	The base address to which to make query requests to. (/api/v1/query* will be appended to given address)
   -duration duration
     	The duration of the up command to run until it stops. (default 5m0s)
-  -endpoint-read string
-    	The endpoint to which to make query requests to.
   -endpoint-write string
     	The endpoint to which to make remote-write requests.
+  -initial-query-wait duration
+    	The time to wait before executing first query. (default 5s)
   -labels value
     	The labels that should be applied to remote-write requests.
   -latency duration
