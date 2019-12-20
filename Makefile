@@ -19,7 +19,7 @@ clean:
 
 tmp/help.txt: clean build
 	mkdir -p tmp
-	-./up --help &> tmp/help.txt
+	-./up --help >tmp/help.txt 2>&1
 
 .PHONY: README.md
 README.md: $(EMBEDMD) tmp/help.txt
