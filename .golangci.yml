@@ -11,7 +11,7 @@ linters-settings:
   lll:
     line-length: 140
   funlen:
-    lines: 130
+    lines: 140
     statements: 60
   gocognit:
     min-complexity: 40

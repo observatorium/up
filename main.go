@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -25,7 +26,6 @@ import (
 	"github.com/oklog/run"
 	"github.com/pkg/errors"
 	promapi "github.com/prometheus/client_golang/api"
-	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	dto "github.com/prometheus/client_model/go"
@@ -71,9 +71,54 @@ func (la *labelArg) Set(v string) error {
 	return nil
 }
 
+type queryResult struct {
+	Type   model.ValueType `json:"resultType"`
+	Result interface{}     `json:"result"`
+
+	v model.Value
+}
+
+func (qr *queryResult) UnmarshalJSON(b []byte) error {
+	v := struct {
+		Status string `json:"status"`
+		Data   struct {
+			Type   model.ValueType `json:"resultType"`
+			Result json.RawMessage `json:"result"`
+		} `json:"data"`
+	}{}
+
+	err := json.Unmarshal(b, &v)
+	if err != nil {
+		return err
+	}
+
+	switch v.Data.Type {
+	case model.ValScalar:
+		var sv model.Scalar
+		err = json.Unmarshal(v.Data.Result, &sv)
+		qr.v = &sv
+
+	case model.ValVector:
+		var vv model.Vector
+		err = json.Unmarshal(v.Data.Result, &vv)
+		qr.v = vv
+
+	case model.ValMatrix:
+		var mv model.Matrix
+		err = json.Unmarshal(v.Data.Result, &mv)
+		qr.v = mv
+
+	default:
+		err = fmt.Errorf("unexpected value type %q", v.Data.Type)
+	}
+
+	return err
+}
+
 type options struct {
+	LogLevel          level.Option
 	WriteEndpoint     *url.URL
-	ReadAddress       *url.URL
+	ReadEndpoint      *url.URL
 	Labels            labelArg
 	Listen            string
 	Name              string
@@ -95,12 +140,16 @@ func main() {
 	l := log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
 	l = log.WithPrefix(l, "ts", log.DefaultTimestampUTC)
 	l = log.WithPrefix(l, "caller", log.DefaultCaller)
+	l = log.WithPrefix(l, "name", "up")
 
-	opts, err := parseOptions()
+	opts, err := parseFlags()
 	if err != nil {
 		level.Error(l).Log("msg", "could not parse command line flags", "err", err)
 		os.Exit(1)
 	}
+
+	l = level.NewFilter(l, opts.LogLevel)
+	l = log.WithPrefix(l, "caller", log.DefaultCaller)
 
 	reg := prometheus.NewRegistry()
 	m := registerMetrics(reg)
@@ -148,17 +197,23 @@ func main() {
 		t := time.NewTicker(opts.Period)
 		ctx, cancel := context.WithCancel(ctx)
 
+		f := func() {
+			if err := write(ctx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
+				m.remoteWriteRequests.WithLabelValues("error").Inc()
+				level.Error(l).Log("msg", "failed to make request", "err", err)
+			} else {
+				m.remoteWriteRequests.WithLabelValues("success").Inc()
+			}
+		}
+
 		g.Add(func() error {
 			level.Info(l).Log("msg", "starting the remote-write client")
+			// Write first metric immediately after start without any delay.
+			f()
 			for {
 				select {
 				case <-t.C:
-					if err := write(ctx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
-						m.remoteWriteRequests.WithLabelValues("error").Inc()
-						level.Error(l).Log("msg", "failed to make request", "err", err)
-					} else {
-						m.remoteWriteRequests.WithLabelValues("success").Inc()
-					}
+					f()
 				case <-ctx.Done():
 					return reportResults(l, m.remoteWriteRequests, opts.SuccessThreshold)
 				}
@@ -169,45 +224,49 @@ func main() {
 		})
 	}
 
-	if opts.ReadAddress != nil {
-		{
-			l := log.With(l, "component", "querier")
-			t := time.NewTicker(opts.Period)
+	if opts.ReadEndpoint != nil {
+		l := log.With(l, "component", "reader")
+		t := time.NewTicker(opts.Period)
 
-			var cancel func()
-			if opts.Duration != 0 {
-				ctx, cancel = context.WithTimeout(ctx, opts.Duration)
-			} else {
-				ctx, cancel = context.WithCancel(ctx)
+		var cancel func()
+		if opts.Duration != 0 {
+			ctx, cancel = context.WithTimeout(ctx, opts.Duration)
+		} else {
+			ctx, cancel = context.WithCancel(ctx)
+		}
+
+		g.Add(func() error {
+			level.Info(l).Log("msg", "waiting for initial delay before querying for metrics")
+			// Wait for at least one period before start reading metrics.
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(opts.InitialQueryDelay + opts.Period):
 			}
 
-			g.Add(func() error {
-				level.Info(l).Log("msg", "waiting for initial delay before querying for metrics")
-				time.Sleep(opts.InitialQueryDelay)
-
-				level.Info(l).Log("msg", "start querying for metrics")
-				for {
-					select {
-					case <-t.C:
-						if err := read(ctx, opts.ReadAddress, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m); err != nil {
-							m.queryResponses.WithLabelValues("error").Inc()
-							level.Error(l).Log("msg", "failed to query", "err", err)
-						} else {
-							m.queryResponses.WithLabelValues("success").Inc()
-						}
-					case <-ctx.Done():
-						return reportResults(l, m.queryResponses, opts.SuccessThreshold)
+			level.Info(l).Log("msg", "start querying for metrics")
+			for {
+				select {
+				case <-t.C:
+					if err := read(ctx, opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m); err != nil {
+						m.queryResponses.WithLabelValues("error").Inc()
+						level.Error(l).Log("msg", "failed to query", "err", err)
+					} else {
+						m.queryResponses.WithLabelValues("success").Inc()
 					}
+				case <-ctx.Done():
+					return reportResults(l, m.queryResponses, opts.SuccessThreshold)
 				}
-			}, func(err error) {
-				t.Stop()
-				cancel()
-			})
-		}
+			}
+		}, func(_ error) {
+			t.Stop()
+			cancel()
+		})
 	}
 
 	if err := g.Run(); err != nil {
-		stdlog.Fatal(err)
+		level.Error(l).Log("msg", "run group exited with error", "err", err)
+		os.Exit(1)
 	}
 
 	level.Info(l).Log("msg", "up completed its mission!")
@@ -240,18 +299,19 @@ func registerMetrics(reg *prometheus.Registry) metrics {
 	return m
 }
 
-func parseOptions() (options, error) {
+func parseFlags() (options, error) {
 	var (
-		rawEndpointWrite string
-		rawReadAddress   string
+		rawWriteEndpoint string
+		rawReadEndpoint  string
+		rawLogLevel      string
 	)
 
 	opts := options{}
 
-	flag.StringVar(&rawEndpointWrite, "endpoint-write", "", "The endpoint to which to make remote-write requests.")
-	flag.StringVar(&rawReadAddress, "read-address", "",
-		"The base address to which to make query requests to. (/api/v1/query* will be appended to the given address)")
-	flag.Var(&opts.Labels, "labels", "The labels additionally to `__name__` that should be applied to remote-write requests.")
+	flag.StringVar(&rawLogLevel, "log.level", "info", "The log filtering level. Options: 'error', 'warn', 'info', 'debug'.")
+	flag.StringVar(&rawWriteEndpoint, "endpoint-write", "", "The endpoint to which to make remote-write requests.")
+	flag.StringVar(&rawReadEndpoint, "endpoint-read", "", "The endpoint to which to make query requests.")
+	flag.Var(&opts.Labels, "labels", "The labels additionally to '__name__' that should be applied to remote-write requests.")
 	flag.StringVar(&opts.Listen, "listen", ":8080", "The address on which internal server runs.")
 	flag.StringVar(&opts.Name, "name", "up", "The name of the metric to send in remote-write requests.")
 	flag.StringVar(&opts.Token, "token", "", "The bearer token to set in the authorization header on remote-write requests.")
@@ -262,22 +322,35 @@ func parseOptions() (options, error) {
 	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second, "The time to wait before executing the first query.")
 	flag.Parse()
 
-	endpointWrite, err := url.ParseRequestURI(rawEndpointWrite)
+	switch rawLogLevel {
+	case "error":
+		opts.LogLevel = level.AllowError()
+	case "warn":
+		opts.LogLevel = level.AllowWarn()
+	case "info":
+		opts.LogLevel = level.AllowInfo()
+	case "debug":
+		opts.LogLevel = level.AllowDebug()
+	default:
+		panic("unexpected log level")
+	}
+
+	writeEndpoint, err := url.ParseRequestURI(rawWriteEndpoint)
 	if err != nil {
 		return opts, fmt.Errorf("--endpoint-write is invalid: %w", err)
 	}
 
-	opts.WriteEndpoint = endpointWrite
+	opts.WriteEndpoint = writeEndpoint
 
-	var readAddress *url.URL
-	if rawReadAddress != "" {
-		readAddress, err = url.ParseRequestURI(rawReadAddress)
+	var readEndpoint *url.URL
+	if rawReadEndpoint != "" {
+		readEndpoint, err = url.ParseRequestURI(rawReadEndpoint)
 		if err != nil {
-			return opts, fmt.Errorf("--read-address is invalid: %w", err)
+			return opts, fmt.Errorf("--endpoint-read is invalid: %w", err)
 		}
 	}
 
-	opts.ReadAddress = readAddress
+	opts.ReadEndpoint = readEndpoint
 
 	if opts.Duration <= opts.Period {
 		return opts, errors.New("--duration cannot be less than period")
@@ -285,10 +358,6 @@ func parseOptions() (options, error) {
 
 	if opts.Latency <= opts.Period {
 		return opts, errors.New("--latency cannot be less than period")
-	}
-
-	if opts.InitialQueryDelay <= opts.Period {
-		return opts, errors.New("--initial-query-delay cannot be less than period")
 	}
 
 	opts.Labels = append(opts.Labels, prompb.Label{
@@ -299,13 +368,11 @@ func parseOptions() (options, error) {
 	return opts, err
 }
 
-func read(ctx context.Context, endpoint fmt.Stringer, labels []prompb.Label, ago, latency time.Duration, m metrics) error {
+func read(ctx context.Context, endpoint *url.URL, labels []prompb.Label, ago, latency time.Duration, m metrics) error {
 	client, err := promapi.NewClient(promapi.Config{Address: endpoint.String()})
 	if err != nil {
 		return err
 	}
-
-	a := promv1.NewAPI(client)
 
 	labelSelectors := make([]string, len(labels))
 	for i, label := range labels {
@@ -314,12 +381,25 @@ func read(ctx context.Context, endpoint fmt.Stringer, labels []prompb.Label, ago
 
 	query := fmt.Sprintf("{%s}", strings.Join(labelSelectors, ","))
 
-	value, _, err := a.Query(ctx, query, time.Now().Add(ago))
-	if err != nil {
-		return err
+	q := endpoint.Query()
+	q.Set("query", query)
+
+	ts := time.Now().Add(ago)
+	if !ts.IsZero() {
+		q.Set("time", formatTime(ts))
 	}
 
-	vec := value.(model.Vector)
+	_, body, _, err := promapi.DoGetFallback(client, ctx, endpoint, q) //nolint:bodyclose
+	if err != nil {
+		return errors.Wrap(err, "query request failed")
+	}
+
+	var result queryResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return errors.Wrap(err, "query response parse failed")
+	}
+
+	vec := result.v.(model.Vector)
 	if len(vec) != 1 {
 		return fmt.Errorf("expected one metric, got %d", len(vec))
 	}
@@ -357,24 +437,12 @@ func write(ctx context.Context, endpoint fmt.Stringer, token string, wreq proto.
 
 	req.Header.Add("Authorization", "Bearer "+token)
 
-	res, err = http.DefaultClient.Do(req.WithContext(ctx))
+	res, err = http.DefaultClient.Do(req.WithContext(ctx)) //nolint:bodyclose
 	if err != nil {
 		return errors.Wrap(err, "making request")
 	}
 
-	defer func() {
-		_, err := io.Copy(ioutil.Discard, res.Body)
-		if err != nil {
-			level.Warn(l).Log("msg", "failed to exhaust reader, performance may be impeded", "err", err)
-		}
-
-		err = res.Body.Close()
-		if err == nil {
-			return
-		}
-
-		level.Warn(l).Log("msg", "detected close error", "err", fmt.Errorf("responde body close: %w", err))
-	}()
+	defer exhaustCloseWithLogOnErr(l, res.Body)
 
 	if res.StatusCode != http.StatusOK {
 		err = errors.New(res.Status)
@@ -411,6 +479,7 @@ func reportResults(l log.Logger, c *prometheus.CounterVec, threshold float64) er
 
 	ratio := success / (success + errors)
 	if ratio < threshold {
+		level.Error(l).Log("msg", "ratio is below threshold")
 		return fmt.Errorf("failed with less than %2.f%% success ratio - actual %2.f%%", threshold*100, ratio*100)
 	}
 
@@ -433,4 +502,19 @@ func generate(labels []prompb.Label) *prompb.WriteRequest {
 			},
 		},
 	}
+}
+
+func exhaustCloseWithLogOnErr(l log.Logger, rc io.ReadCloser) {
+	_, err := io.Copy(ioutil.Discard, rc)
+	if err != nil {
+		level.Warn(l).Log("msg", "failed to exhaust reader, performance may be impeded", "err", err)
+	}
+
+	if err = rc.Close(); err != nil {
+		level.Warn(l).Log("msg", "detected close error", "err", errors.Wrap(err, "response body close"))
+	}
+}
+
+func formatTime(t time.Time) string {
+	return strconv.FormatFloat(float64(t.Unix())+float64(t.Nanosecond())/1e9, 'f', -1, 64)
 }
