@@ -20,7 +20,7 @@ go-fmt:
 	@fmt_res=$$(gofmt -d -s $$(find . -type f -name '*.go' -not -path './vendor/*' -not -path './jsonnet/vendor/*')); if [ -n "$$fmt_res" ]; then printf '\nGofmt found style issues. Please check the reported issues\nand fix them if necessary before submitting the code for review:\n\n%s' "$$fmt_res"; exit 1; fi
 
 .PHONY: lint
-lint: $(GOLANGCILINT) format
+lint: $(GOLANGCILINT)
 	$(GOLANGCILINT) run -v --enable-all -c .golangci.yml
 
 container: Dockerfile up
