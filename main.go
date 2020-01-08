@@ -311,7 +311,7 @@ func parseFlags() (options, error) {
 	flag.StringVar(&rawLogLevel, "log.level", "info", "The log filtering level. Options: 'error', 'warn', 'info', 'debug'.")
 	flag.StringVar(&rawWriteEndpoint, "endpoint-write", "", "The endpoint to which to make remote-write requests.")
 	flag.StringVar(&rawReadEndpoint, "endpoint-read", "", "The endpoint to which to make query requests.")
-	flag.Var(&opts.Labels, "labels", "The labels additionally to '__name__' that should be applied to remote-write requests.")
+	flag.Var(&opts.Labels, "labels", "The labels in addition to '__name__' that should be applied to remote-write requests.")
 	flag.StringVar(&opts.Listen, "listen", ":8080", "The address on which internal server runs.")
 	flag.StringVar(&opts.Name, "name", "up", "The name of the metric to send in remote-write requests.")
 	flag.StringVar(&opts.Token, "token", "", "The bearer token to set in the authorization header on remote-write requests.")
