@@ -40,11 +40,13 @@ Usage of ./up:
   -initial-query-delay duration
     	The time to wait before executing the first query. (default 5s)
   -labels value
-    	The labels additionally to '__name__' that should be applied to remote-write requests.
+    	The labels in addition to '__name__' that should be applied to remote-write requests.
   -latency duration
     	The maximum allowable latency between writing and reading. (default 15s)
   -listen string
     	The address on which internal server runs. (default ":8080")
+  -log.level string
+    	The log filtering level. Options: 'error', 'warn', 'info', 'debug'. (default "info")
   -name string
     	The name of the metric to send in remote-write requests. (default "up")
   -period duration
