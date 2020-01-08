@@ -197,23 +197,17 @@ func main() {
 		t := time.NewTicker(opts.Period)
 		ctx, cancel := context.WithCancel(ctx)
 
-		f := func() {
-			if err := write(ctx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
-				m.remoteWriteRequests.WithLabelValues("error").Inc()
-				level.Error(l).Log("msg", "failed to make request", "err", err)
-			} else {
-				m.remoteWriteRequests.WithLabelValues("success").Inc()
-			}
-		}
-
 		g.Add(func() error {
 			level.Info(l).Log("msg", "starting the remote-write client")
-			// Write first metric immediately after start without any delay.
-			f()
 			for {
 				select {
 				case <-t.C:
-					f()
+					if err := write(ctx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
+						m.remoteWriteRequests.WithLabelValues("error").Inc()
+						level.Error(l).Log("msg", "failed to make request", "err", err)
+					} else {
+						m.remoteWriteRequests.WithLabelValues("success").Inc()
+					}
 				case <-ctx.Done():
 					return reportResults(l, m.remoteWriteRequests, opts.SuccessThreshold)
 				}
