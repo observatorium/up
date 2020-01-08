@@ -505,12 +505,11 @@ func generate(labels []prompb.Label) *prompb.WriteRequest {
 }
 
 func exhaustCloseWithLogOnErr(l log.Logger, rc io.ReadCloser) {
-	_, err := io.Copy(ioutil.Discard, rc)
-	if err != nil {
+	if _, err := io.Copy(ioutil.Discard, rc); err != nil {
 		level.Warn(l).Log("msg", "failed to exhaust reader, performance may be impeded", "err", err)
 	}
 
-	if err = rc.Close(); err != nil {
+	if err := rc.Close(); err != nil {
 		level.Warn(l).Log("msg", "detected close error", "err", errors.Wrap(err, "response body close"))
 	}
 }
