@@ -195,8 +195,14 @@ func main() {
 
 	ctx := context.Background()
 
+	var cancel context.CancelFunc
+	if opts.Duration != 0 {
+		ctx, cancel = context.WithTimeout(ctx, opts.Duration)
+	} else {
+		ctx, cancel = context.WithCancel(ctx)
+	}
+
 	{
-		ctx, cancel := context.WithCancel(ctx)
 		g.Add(func() error {
 			return runWriter(ctx, opts, l, m)
 		}, func(_ error) {
@@ -205,13 +211,6 @@ func main() {
 	}
 
 	if opts.ReadEndpoint != nil {
-		var cancel context.CancelFunc
-		if opts.Duration != 0 {
-			ctx, cancel = context.WithTimeout(ctx, opts.Duration)
-		} else {
-			ctx, cancel = context.WithCancel(ctx)
-		}
-
 		g.Add(func() error {
 			return runReader(ctx, opts, l, m)
 		}, func(_ error) {
@@ -239,144 +238,67 @@ func runReader(ctx context.Context, opts options, logger log.Logger, m metrics) 
 	case <-time.After(opts.InitialQueryDelay + opts.Period):
 	}
 
-	t := time.NewTicker(opts.Period)
-
 	level.Info(l).Log("msg", "start querying for metrics")
 
-	for {
-		select {
-		case <-t.C:
-			// Do not propagate parent context to prevent cancellation of in-flight request.
-			if err := read(context.Background(), opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m); err != nil {
-				m.queryResponses.WithLabelValues("error").Inc()
-				level.Error(l).Log("msg", "failed to query", "err", err)
-			} else {
-				m.queryResponses.WithLabelValues("success").Inc()
-			}
-		case <-ctx.Done():
-			t.Stop()
-			return reportResults(l, m.queryResponses, opts.SuccessThreshold)
+	return runPeriodically(ctx, opts, m.queryResponses, l, func(rCtx context.Context) {
+		if err := read(rCtx, opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m); err != nil {
+			m.queryResponses.WithLabelValues("error").Inc()
+			level.Error(l).Log("msg", "failed to query", "err", err)
+		} else {
+			m.queryResponses.WithLabelValues("success").Inc()
 		}
-	}
+	})
 }
 
 func runWriter(ctx context.Context, opts options, logger log.Logger, m metrics) error {
 	l := log.With(logger, "component", "writer")
-	t := time.NewTicker(opts.Period)
-
 	level.Info(l).Log("msg", "starting the writer")
+
+	return runPeriodically(ctx, opts, m.remoteWriteRequests, l, func(rCtx context.Context) {
+		if err := write(rCtx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
+			m.remoteWriteRequests.WithLabelValues("error").Inc()
+			level.Error(l).Log("msg", "failed to make request", "err", err)
+		} else {
+			m.remoteWriteRequests.WithLabelValues("success").Inc()
+		}
+	})
+}
+
+func runPeriodically(ctx context.Context, opts options, c *prometheus.CounterVec, l log.Logger, f func(rCtx context.Context)) error {
+	var (
+		t        = time.NewTicker(opts.Period)
+		deadline time.Time
+		rCtx     context.Context
+		rCancel  context.CancelFunc
+	)
 
 	for {
 		select {
 		case <-t.C:
-			// Do not propagate parent context to prevent cancellation of in-flight request.
-			if err := write(context.Background(), opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
-				m.remoteWriteRequests.WithLabelValues("error").Inc()
-				level.Error(l).Log("msg", "failed to make request", "err", err)
-			} else {
-				m.remoteWriteRequests.WithLabelValues("success").Inc()
-			}
+			// NOTICE: Do not propagate parent context to prevent cancellation of in-flight request.
+			// It will be cancelled after the deadline.
+			deadline = time.Now().Add(opts.Period)
+			rCtx, rCancel = context.WithDeadline(context.Background(), deadline)
+
+			// Will only get scheduled once per period and guaranteed to get cancelled after deadline.
+			go func() {
+				defer rCancel() // Make sure context gets cancelled even if execution panics.
+
+				f(rCtx)
+			}()
 		case <-ctx.Done():
 			t.Stop()
-			return reportResults(l, m.remoteWriteRequests, opts.SuccessThreshold)
+
+			select {
+			// If it gets immediately cancelled, zero value of deadline won't cause a lock!
+			case <-time.After(time.Until(deadline)):
+				rCancel()
+			case <-rCtx.Done():
+			}
+
+			return reportResults(l, c, opts.SuccessThreshold)
 		}
 	}
-}
-
-func registerMetrics(reg *prometheus.Registry) metrics {
-	m := metrics{
-		remoteWriteRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "up_remote_writes_total",
-			Help: "Total number of remote write requests.",
-		}, []string{"result"}),
-		queryResponses: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "up_queries_total",
-			Help: "The total number of queries made.",
-		}, []string{"result"}),
-		metricValueDifference: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:    "up_metric_value_difference",
-			Help:    "The time difference between the current timestamp and the timestamp in the metrics value.",
-			Buckets: prometheus.LinearBuckets(4, 0.25, 16),
-		}),
-	}
-	reg.MustRegister(
-		prometheus.NewGoCollector(),
-		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
-		m.remoteWriteRequests,
-		m.queryResponses,
-		m.metricValueDifference,
-	)
-
-	return m
-}
-
-func parseFlags() (options, error) {
-	var (
-		rawWriteEndpoint string
-		rawReadEndpoint  string
-		rawLogLevel      string
-	)
-
-	opts := options{}
-
-	flag.StringVar(&rawLogLevel, "log.level", "info", "The log filtering level. Options: 'error', 'warn', 'info', 'debug'.")
-	flag.StringVar(&rawWriteEndpoint, "endpoint-write", "", "The endpoint to which to make remote-write requests.")
-	flag.StringVar(&rawReadEndpoint, "endpoint-read", "", "The endpoint to which to make query requests.")
-	flag.Var(&opts.Labels, "labels", "The labels in addition to '__name__' that should be applied to remote-write requests.")
-	flag.StringVar(&opts.Listen, "listen", ":8080", "The address on which internal server runs.")
-	flag.StringVar(&opts.Name, "name", "up", "The name of the metric to send in remote-write requests.")
-	flag.StringVar(&opts.Token, "token", "", "The bearer token to set in the authorization header on remote-write requests.")
-	flag.DurationVar(&opts.Period, "period", 5*time.Second, "The time to wait between remote-write requests.")
-	flag.DurationVar(&opts.Duration, "duration", 5*time.Minute, "The duration of the up command to run until it stops.")
-	flag.Float64Var(&opts.SuccessThreshold, "threshold", 0.9, "The percentage of successful requests needed to succeed overall. 0 - 1.")
-	flag.DurationVar(&opts.Latency, "latency", 15*time.Second, "The maximum allowable latency between writing and reading.")
-	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second, "The time to wait before executing the first query.")
-	flag.Parse()
-
-	switch rawLogLevel {
-	case "error":
-		opts.LogLevel = level.AllowError()
-	case "warn":
-		opts.LogLevel = level.AllowWarn()
-	case "info":
-		opts.LogLevel = level.AllowInfo()
-	case "debug":
-		opts.LogLevel = level.AllowDebug()
-	default:
-		panic("unexpected log level")
-	}
-
-	writeEndpoint, err := url.ParseRequestURI(rawWriteEndpoint)
-	if err != nil {
-		return opts, fmt.Errorf("--endpoint-write is invalid: %w", err)
-	}
-
-	opts.WriteEndpoint = writeEndpoint
-
-	var readEndpoint *url.URL
-	if rawReadEndpoint != "" {
-		readEndpoint, err = url.ParseRequestURI(rawReadEndpoint)
-		if err != nil {
-			return opts, fmt.Errorf("--endpoint-read is invalid: %w", err)
-		}
-	}
-
-	opts.ReadEndpoint = readEndpoint
-
-	if opts.Duration <= opts.Period {
-		return opts, errors.New("--duration cannot be less than period")
-	}
-
-	if opts.Latency <= opts.Period {
-		return opts, errors.New("--latency cannot be less than period")
-	}
-
-	opts.Labels = append(opts.Labels, prompb.Label{
-		Name:  "__name__",
-		Value: opts.Name,
-	})
-
-	return opts, err
 }
 
 func read(ctx context.Context, endpoint *url.URL, labels []prompb.Label, ago, latency time.Duration, m metrics) error {
@@ -513,6 +435,104 @@ func generate(labels []prompb.Label) *prompb.WriteRequest {
 			},
 		},
 	}
+}
+
+// Helpers
+
+func parseFlags() (options, error) {
+	var (
+		rawWriteEndpoint string
+		rawReadEndpoint  string
+		rawLogLevel      string
+	)
+
+	opts := options{}
+
+	flag.StringVar(&rawLogLevel, "log.level", "info", "The log filtering level. Options: 'error', 'warn', 'info', 'debug'.")
+	flag.StringVar(&rawWriteEndpoint, "endpoint-write", "", "The endpoint to which to make remote-write requests.")
+	flag.StringVar(&rawReadEndpoint, "endpoint-read", "", "The endpoint to which to make query requests.")
+	flag.Var(&opts.Labels, "labels", "The labels in addition to '__name__' that should be applied to remote-write requests.")
+	flag.StringVar(&opts.Listen, "listen", ":8080", "The address on which internal server runs.")
+	flag.StringVar(&opts.Name, "name", "up", "The name of the metric to send in remote-write requests.")
+	flag.StringVar(&opts.Token, "token", "", "The bearer token to set in the authorization header on remote-write requests.")
+	flag.DurationVar(&opts.Period, "period", 5*time.Second, "The time to wait between remote-write requests.")
+	flag.DurationVar(&opts.Duration, "duration", 5*time.Minute, "The duration of the up command to runPeriodically until it stops.")
+	flag.Float64Var(&opts.SuccessThreshold, "threshold", 0.9, "The percentage of successful requests needed to succeed overall. 0 - 1.")
+	flag.DurationVar(&opts.Latency, "latency", 15*time.Second, "The maximum allowable latency between writing and reading.")
+	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second, "The time to wait before executing the first query.")
+	flag.Parse()
+
+	switch rawLogLevel {
+	case "error":
+		opts.LogLevel = level.AllowError()
+	case "warn":
+		opts.LogLevel = level.AllowWarn()
+	case "info":
+		opts.LogLevel = level.AllowInfo()
+	case "debug":
+		opts.LogLevel = level.AllowDebug()
+	default:
+		panic("unexpected log level")
+	}
+
+	writeEndpoint, err := url.ParseRequestURI(rawWriteEndpoint)
+	if err != nil {
+		return opts, fmt.Errorf("--endpoint-write is invalid: %w", err)
+	}
+
+	opts.WriteEndpoint = writeEndpoint
+
+	var readEndpoint *url.URL
+	if rawReadEndpoint != "" {
+		readEndpoint, err = url.ParseRequestURI(rawReadEndpoint)
+		if err != nil {
+			return opts, fmt.Errorf("--endpoint-read is invalid: %w", err)
+		}
+	}
+
+	opts.ReadEndpoint = readEndpoint
+
+	if opts.Duration <= opts.Period {
+		return opts, errors.New("--duration cannot be less than period")
+	}
+
+	if opts.Latency <= opts.Period {
+		return opts, errors.New("--latency cannot be less than period")
+	}
+
+	opts.Labels = append(opts.Labels, prompb.Label{
+		Name:  "__name__",
+		Value: opts.Name,
+	})
+
+	return opts, err
+}
+
+func registerMetrics(reg *prometheus.Registry) metrics {
+	m := metrics{
+		remoteWriteRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "up_remote_writes_total",
+			Help: "Total number of remote write requests.",
+		}, []string{"result"}),
+		queryResponses: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "up_queries_total",
+			Help: "The total number of queries made.",
+		}, []string{"result"}),
+		metricValueDifference: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "up_metric_value_difference",
+			Help:    "The time difference between the current timestamp and the timestamp in the metrics value.",
+			Buckets: prometheus.LinearBuckets(4, 0.25, 16),
+		}),
+	}
+	reg.MustRegister(
+		prometheus.NewGoCollector(),
+		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
+		m.remoteWriteRequests,
+		m.queryResponses,
+		m.metricValueDifference,
+	)
+
+	return m
 }
 
 func exhaustCloseWithLogOnErr(l log.Logger, rc io.ReadCloser) {
