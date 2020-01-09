@@ -34,15 +34,19 @@ Usage of ./up:
   -duration duration
     	The duration of the up command to run until it stops. (default 5m0s)
   -endpoint-read string
-    	The endpoint to which to make query requests to.
+    	The endpoint to which to make query requests.
   -endpoint-write string
     	The endpoint to which to make remote-write requests.
+  -initial-query-delay duration
+    	The time to wait before executing the first query. (default 5s)
   -labels value
-    	The labels that should be applied to remote-write requests.
+    	The labels in addition to '__name__' that should be applied to remote-write requests.
   -latency duration
     	The maximum allowable latency between writing and reading. (default 15s)
   -listen string
     	The address on which internal server runs. (default ":8080")
+  -log.level string
+    	The log filtering level. Options: 'error', 'warn', 'info', 'debug'. (default "info")
   -name string
     	The name of the metric to send in remote-write requests. (default "up")
   -period duration
