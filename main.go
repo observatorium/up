@@ -204,7 +204,17 @@ func main() {
 
 	{
 		g.Add(func() error {
-			return runWriter(ctx, opts, l, m)
+			l := log.With(l, "component", "writer")
+			level.Info(l).Log("msg", "starting the writer")
+
+			return runPeriodically(ctx, opts, m.remoteWriteRequests, l, func(rCtx context.Context) {
+				if err := write(rCtx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
+					m.remoteWriteRequests.WithLabelValues("error").Inc()
+					level.Error(l).Log("msg", "failed to make request", "err", err)
+				} else {
+					m.remoteWriteRequests.WithLabelValues("success").Inc()
+				}
+			})
 		}, func(_ error) {
 			cancel()
 		})
@@ -212,7 +222,27 @@ func main() {
 
 	if opts.ReadEndpoint != nil {
 		g.Add(func() error {
-			return runReader(ctx, opts, l, m)
+			l := log.With(l, "component", "reader")
+			level.Info(l).Log("msg", "starting the reader")
+
+			// Wait for at least one period before start reading metrics.
+			level.Info(l).Log("msg", "waiting for initial delay before querying for metrics")
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(opts.InitialQueryDelay):
+			}
+
+			level.Info(l).Log("msg", "start querying for metrics")
+
+			return runPeriodically(ctx, opts, m.queryResponses, l, func(rCtx context.Context) {
+				if err := read(rCtx, opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m); err != nil {
+					m.queryResponses.WithLabelValues("error").Inc()
+					level.Error(l).Log("msg", "failed to query", "err", err)
+				} else {
+					m.queryResponses.WithLabelValues("success").Inc()
+				}
+			})
 		}, func(_ error) {
 			cancel()
 		})
@@ -224,44 +254,6 @@ func main() {
 	}
 
 	level.Info(l).Log("msg", "up completed its mission!")
-}
-
-func runReader(ctx context.Context, opts options, logger log.Logger, m metrics) error {
-	l := log.With(logger, "component", "reader")
-	level.Info(l).Log("msg", "starting the reader")
-
-	// Wait for at least one period before start reading metrics.
-	level.Info(l).Log("msg", "waiting for initial delay before querying for metrics")
-	select {
-	case <-ctx.Done():
-		return nil
-	case <-time.After(opts.InitialQueryDelay + opts.Period):
-	}
-
-	level.Info(l).Log("msg", "start querying for metrics")
-
-	return runPeriodically(ctx, opts, m.queryResponses, l, func(rCtx context.Context) {
-		if err := read(rCtx, opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m); err != nil {
-			m.queryResponses.WithLabelValues("error").Inc()
-			level.Error(l).Log("msg", "failed to query", "err", err)
-		} else {
-			m.queryResponses.WithLabelValues("success").Inc()
-		}
-	})
-}
-
-func runWriter(ctx context.Context, opts options, logger log.Logger, m metrics) error {
-	l := log.With(logger, "component", "writer")
-	level.Info(l).Log("msg", "starting the writer")
-
-	return runPeriodically(ctx, opts, m.remoteWriteRequests, l, func(rCtx context.Context) {
-		if err := write(rCtx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
-			m.remoteWriteRequests.WithLabelValues("error").Inc()
-			level.Error(l).Log("msg", "failed to make request", "err", err)
-		} else {
-			m.remoteWriteRequests.WithLabelValues("success").Inc()
-		}
-	})
 }
 
 func runPeriodically(ctx context.Context, opts options, c *prometheus.CounterVec, l log.Logger, f func(rCtx context.Context)) error {
