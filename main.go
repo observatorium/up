@@ -33,8 +33,6 @@ import (
 	"github.com/prometheus/prometheus/prompb"
 )
 
-const gracefulStopDuration = 5 * time.Second
-
 type labelArg []prompb.Label
 
 func (la *labelArg) String() string {
@@ -195,10 +193,30 @@ func main() {
 		})
 	}
 
-	scheduleWriter(g, opts, l, m)
+	ctx := context.Background()
+
+	{
+		ctx, cancel := context.WithCancel(ctx)
+		g.Add(func() error {
+			return runWriter(ctx, opts, l, m)
+		}, func(_ error) {
+			cancel()
+		})
+	}
 
 	if opts.ReadEndpoint != nil {
-		scheduleReader(g, opts, l, m)
+		var cancel context.CancelFunc
+		if opts.Duration != 0 {
+			ctx, cancel = context.WithTimeout(ctx, opts.Duration)
+		} else {
+			ctx, cancel = context.WithCancel(ctx)
+		}
+
+		g.Add(func() error {
+			return runReader(ctx, opts, l, m)
+		}, func(_ error) {
+			cancel()
+		})
 	}
 
 	if err := g.Run(); err != nil {
@@ -209,97 +227,60 @@ func main() {
 	level.Info(l).Log("msg", "up completed its mission!")
 }
 
-func scheduleReader(g run.Group, opts options, logger log.Logger, m metrics) {
+func runReader(ctx context.Context, opts options, logger log.Logger, m metrics) error {
 	l := log.With(logger, "component", "reader")
-	t := time.NewTicker(opts.Period)
+	level.Info(l).Log("msg", "starting the reader")
 
-	var (
-		ctx    = context.Background()
-		cancel context.CancelFunc
-	)
-
-	if opts.Duration != 0 {
-		ctx, cancel = context.WithTimeout(ctx, opts.Duration)
-	} else {
-		ctx, cancel = context.WithCancel(ctx)
+	// Wait for at least one period before start reading metrics.
+	level.Info(l).Log("msg", "waiting for initial delay before querying for metrics")
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-time.After(opts.InitialQueryDelay + opts.Period):
 	}
 
-	g.Add(func() error {
-		level.Info(l).Log("msg", "starting the reader")
-		level.Info(l).Log("msg", "waiting for initial delay before querying for metrics")
-		// Wait for at least one period before start reading metrics.
+	t := time.NewTicker(opts.Period)
+
+	level.Info(l).Log("msg", "start querying for metrics")
+
+	for {
 		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(opts.InitialQueryDelay + opts.Period):
-		}
-		var (
-			rCtx    context.Context
-			rCancel context.CancelFunc
-		)
-		level.Info(l).Log("msg", "start querying for metrics")
-		for {
-			rCtx, rCancel = context.WithCancel(context.Background())
-			select {
-			case <-t.C:
-				if err := read(rCtx, opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m); err != nil {
-					m.queryResponses.WithLabelValues("error").Inc()
-					level.Error(l).Log("msg", "failed to query", "err", err)
-				} else {
-					m.queryResponses.WithLabelValues("success").Inc()
-				}
-				rCancel()
-			case <-ctx.Done():
-				select {
-				case <-rCtx.Done():
-				case <-time.After(gracefulStopDuration):
-				}
-				rCancel()
-				return reportResults(l, m.queryResponses, opts.SuccessThreshold)
+		case <-t.C:
+			// Do not propagate parent context to prevent cancellation of in-flight request.
+			if err := read(context.Background(), opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m); err != nil {
+				m.queryResponses.WithLabelValues("error").Inc()
+				level.Error(l).Log("msg", "failed to query", "err", err)
+			} else {
+				m.queryResponses.WithLabelValues("success").Inc()
 			}
+		case <-ctx.Done():
+			t.Stop()
+			return reportResults(l, m.queryResponses, opts.SuccessThreshold)
 		}
-	}, func(_ error) {
-		t.Stop()
-		cancel()
-	})
+	}
 }
 
-func scheduleWriter(g run.Group, opts options, logger log.Logger, m metrics) {
+func runWriter(ctx context.Context, opts options, logger log.Logger, m metrics) error {
 	l := log.With(logger, "component", "writer")
 	t := time.NewTicker(opts.Period)
-	ctx, cancel := context.WithCancel(context.Background())
 
-	g.Add(func() error {
-		level.Info(l).Log("msg", "starting the writer")
-		var (
-			wCtx    context.Context
-			wCancel context.CancelFunc
-		)
-		for {
-			wCtx, wCancel = context.WithCancel(context.Background())
-			select {
-			case <-t.C:
-				if err := write(wCtx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
-					m.remoteWriteRequests.WithLabelValues("error").Inc()
-					level.Error(l).Log("msg", "failed to make request", "err", err)
-				} else {
-					m.remoteWriteRequests.WithLabelValues("success").Inc()
-				}
-				wCancel()
-			case <-ctx.Done():
-				level.Info(l).Log("msg", "gracefully stopping writer")
-				select {
-				case <-wCtx.Done():
-				case <-time.After(gracefulStopDuration):
-				}
-				wCancel()
-				return reportResults(l, m.remoteWriteRequests, opts.SuccessThreshold)
+	level.Info(l).Log("msg", "starting the writer")
+
+	for {
+		select {
+		case <-t.C:
+			// Do not propagate parent context to prevent cancellation of in-flight request.
+			if err := write(context.Background(), opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
+				m.remoteWriteRequests.WithLabelValues("error").Inc()
+				level.Error(l).Log("msg", "failed to make request", "err", err)
+			} else {
+				m.remoteWriteRequests.WithLabelValues("success").Inc()
 			}
+		case <-ctx.Done():
+			t.Stop()
+			return reportResults(l, m.remoteWriteRequests, opts.SuccessThreshold)
 		}
-	}, func(_ error) {
-		t.Stop()
-		cancel()
-	})
+	}
 }
 
 func registerMetrics(reg *prometheus.Registry) metrics {
