@@ -207,7 +207,7 @@ func main() {
 			l := log.With(l, "component", "writer")
 			level.Info(l).Log("msg", "starting the writer")
 
-			return runPeriodically(ctx, opts, m.remoteWriteRequests, l, func(rCtx context.Context) {
+			return runPeriodically(ctx, opts, m, l, func(rCtx context.Context) {
 				if err := write(rCtx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
 					m.remoteWriteRequests.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to make request", "err", err)
@@ -235,7 +235,7 @@ func main() {
 
 			level.Info(l).Log("msg", "start querying for metrics")
 
-			return runPeriodically(ctx, opts, m.queryResponses, l, func(rCtx context.Context) {
+			return runPeriodically(ctx, opts, m, l, func(rCtx context.Context) {
 				if err := read(rCtx, opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m); err != nil {
 					m.queryResponses.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to query", "err", err)
@@ -243,20 +243,32 @@ func main() {
 					m.queryResponses.WithLabelValues("success").Inc()
 				}
 			})
-		}, func(_ error) {
+		}, func(err error) {
+			// For known errors wait for as much as initial delay to finish reading.
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				<-time.After(opts.InitialQueryDelay)
+			}
 			cancel()
 		})
 	}
 
-	if err := g.Run(); err != nil {
-		level.Error(l).Log("msg", "run group exited with error", "err", err)
+	// Run actors.
+	err = g.Run()
+
+	// Report results before exit.
+	if err := reportResults(l, m, opts); err != nil {
+		level.Error(l).Log("msg", "ratio is below threshold", "err", err)
 		os.Exit(1)
+	}
+
+	if err != nil {
+		level.Error(l).Log("msg", "run group exited with error", "err", err)
 	}
 
 	level.Info(l).Log("msg", "up completed its mission!")
 }
 
-func runPeriodically(ctx context.Context, opts options, c *prometheus.CounterVec, l log.Logger, f func(rCtx context.Context)) error {
+func runPeriodically(ctx context.Context, opts options, m metrics, l log.Logger, f func(rCtx context.Context)) error {
 	var (
 		t        = time.NewTicker(opts.Period)
 		deadline time.Time
@@ -285,10 +297,10 @@ func runPeriodically(ctx context.Context, opts options, c *prometheus.CounterVec
 			// If it gets immediately cancelled, zero value of deadline won't cause a lock!
 			case <-time.After(time.Until(deadline)):
 				rCancel()
+				return errors.Wrap(context.DeadlineExceeded, "periodic request stopped")
 			case <-rCtx.Done():
+				return errors.Wrap(context.Canceled, "periodic request stopped")
 			}
-
-			return reportResults(l, c, opts.SuccessThreshold)
 		}
 	}
 }
@@ -377,35 +389,46 @@ func write(ctx context.Context, endpoint fmt.Stringer, token string, wreq proto.
 	return nil
 }
 
-func reportResults(l log.Logger, c *prometheus.CounterVec, threshold float64) error {
-	metrics := make(chan prometheus.Metric, 2)
-	c.Collect(metrics)
-	close(metrics)
+func reportResults(l log.Logger, mtr metrics, opts options) error {
+	collect := func(l log.Logger, c *prometheus.CounterVec) (success, errors float64) {
+		mtrs := make(chan prometheus.Metric, 2)
 
-	var success, errors float64
+		c.Collect(mtrs)
+		close(mtrs)
 
-	for m := range metrics {
-		m1 := &dto.Metric{}
-		if err := m.Write(m1); err != nil {
-			level.Warn(l).Log("msg", "cannot read success and error count from prometheus counter", "err", err)
-		}
+		for m := range mtrs {
+			m1 := &dto.Metric{}
+			if err := m.Write(m1); err != nil {
+				level.Warn(l).Log("msg", "cannot read success and error count from prometheus counter", "err", err)
+			}
 
-		for _, l := range m1.Label {
-			switch *l.Value {
-			case "error":
-				errors = m1.GetCounter().GetValue()
-			case "success":
-				success = m1.GetCounter().GetValue()
+			for _, l := range m1.Label {
+				switch *l.Value {
+				case "error":
+					errors += m1.GetCounter().GetValue()
+				case "success":
+					success += m1.GetCounter().GetValue()
+				}
 			}
 		}
+
+		level.Info(l).Log("msg", "number of requests", "success", success, "errors", errors)
+		return
 	}
 
-	level.Info(l).Log("msg", "number of requests", "success", success, "errors", errors)
+	success, errors := collect(log.With(l, "component", "writer"), mtr.remoteWriteRequests)
+
+	if opts.ReadEndpoint != nil {
+		s, e := collect(log.With(l, "component", "reader"), mtr.queryResponses)
+		success += s
+		errors += e
+	}
+
+	level.Info(l).Log("msg", "total number of requests", "success", success, "errors", errors)
 
 	ratio := success / (success + errors)
-	if ratio < threshold {
-		level.Error(l).Log("msg", "ratio is below threshold")
-		return fmt.Errorf("failed with less than %2.f%% success ratio - actual %2.f%%", threshold*100, ratio*100)
+	if ratio < opts.SuccessThreshold {
+		return fmt.Errorf("failed with less than %2.f%% success ratio - actual %2.f%%", opts.SuccessThreshold*100, ratio*100)
 	}
 
 	return nil
