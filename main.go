@@ -208,7 +208,7 @@ func main() {
 			l := log.With(l, "component", "writer")
 			level.Info(l).Log("msg", "starting the writer")
 
-			return runPeriodically(ctx, opts, m, l, func(rCtx context.Context) {
+			return runPeriodically(ctx, opts, l, func(rCtx context.Context) {
 				if err := write(rCtx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
 					m.remoteWriteRequests.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to make request", "err", err)
