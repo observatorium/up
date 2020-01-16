@@ -9,9 +9,6 @@ linters-settings:
   errcheck:
     exclude: .errcheck_excludes
   lll:
-    line-length: 140
-  funlen:
-    lines: 120
-    statements: 45
+    line-length: 120
   gocognit:
     min-complexity: 40

@@ -136,6 +136,7 @@ type metrics struct {
 	metricValueDifference prometheus.Histogram
 }
 
+//nolint: funlen
 func main() {
 	l := log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
 	l = log.WithPrefix(l, "ts", log.DefaultTimestampUTC)
@@ -235,7 +236,7 @@ func main() {
 
 			level.Info(l).Log("msg", "start querying for metrics")
 
-			return runPeriodically(ctx, opts, m, l, func(rCtx context.Context) {
+			return runPeriodically(ctx, opts, l, func(rCtx context.Context) {
 				if err := read(rCtx, opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m); err != nil {
 					m.queryResponses.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to query", "err", err)
@@ -244,6 +245,7 @@ func main() {
 				}
 			})
 		}, func(err error) {
+			// TODO: Conseder introducing custom errors.
 			// For known errors wait for as much as initial delay to finish reading.
 			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 				<-time.After(opts.InitialQueryDelay)
@@ -268,7 +270,7 @@ func main() {
 	level.Info(l).Log("msg", "up completed its mission!")
 }
 
-func runPeriodically(ctx context.Context, opts options, m metrics, l log.Logger, f func(rCtx context.Context)) error {
+func runPeriodically(ctx context.Context, opts options, l log.Logger, f func(rCtx context.Context)) error {
 	var (
 		t        = time.NewTicker(opts.Period)
 		deadline time.Time
@@ -301,6 +303,7 @@ func runPeriodically(ctx context.Context, opts options, m metrics, l log.Logger,
 			case <-rCtx.Done():
 				return errors.Wrap(context.Canceled, "periodic request stopped")
 			}
+			// TODO: Conseder introducing custom errors.
 		}
 	}
 }
@@ -413,6 +416,7 @@ func reportResults(l log.Logger, mtr metrics, opts options) error {
 		}
 
 		level.Info(l).Log("msg", "number of requests", "success", success, "errors", errors)
+
 		return
 	}
 
