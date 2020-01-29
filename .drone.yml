@@ -12,6 +12,7 @@ steps:
   image: golang:1.13
   commands:
   - go test -v -race ./...
+  - make test-integration
   environment:
     # -race requires cgo
     CGO_ENABLED: 1
@@ -40,6 +41,10 @@ steps:
   commands:
     - make README.md
     - git diff --exit-code
+  environment:
+    CGO_ENABLED: 0
+    GO111MODULE: on
+    GOPROXY: https://proxy.golang.org
 
 - name: tags
   image: golang:1.13
