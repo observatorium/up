@@ -1,5 +1,8 @@
+BIN_DIR ?= ./tmp/bin
+EMBEDMD ?= $(BIN_DIR)/embedmd
+THANOS=$(BIN_DIR)/thanos
+
 FIRST_GOPATH := $(firstword $(subst :, ,$(shell go env GOPATH)))
-EMBEDMD ?= $(FIRST_GOPATH)/bin/embedmd
 GOLANGCILINT ?= $(FIRST_GOPATH)/bin/golangci-lint
 GOLANGCILINT_VERSION ?= v1.21.0
 
@@ -10,6 +13,11 @@ build: up
 .PHONY: up
 up:
 	CGO_ENABLED=0 go build -v -ldflags '-w -extldflags '-static''
+
+.PHONY: vendor
+vendor: go.mod go.sum
+	go mod tidy
+	go mod vendor
 
 .PHONY: format
 format: $(GOLANGCILINT) go-fmt
@@ -39,8 +47,18 @@ tmp/help.txt: clean build
 README.md: $(EMBEDMD) tmp/help.txt
 	$(EMBEDMD) -w README.md
 
-$(EMBEDMD):
-	GO111MODULE=off go get -u github.com/campoy/embedmd
+.PHONY: test-integration
+test-integration: build $(THANOS) test/integration.sh
+	PATH=$$PATH:$$(pwd)/$(BIN_DIR) ./test/integration.sh
+
+$(BIN_DIR):
+	mkdir -p $(BIN_DIR)
+
+$(EMBEDMD): vendor $(BIN_DIR)
+	go build -mod=vendor -o $@ github.com/campoy/embedmd
+
+$(THANOS): vendor $(BIN_DIR)
+	go build -mod=vendor -o $@ github.com/thanos-io/thanos/cmd/thanos
 
 $(GOLANGCILINT):
 	curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/$(GOLANGCILINT_VERSION)/install.sh \
