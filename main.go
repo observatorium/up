@@ -301,7 +301,9 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 							m.customQueryErrors.WithLabelValues(q.Name),
 							m.customQueryExecuted.WithLabelValues(q.Name),
 						)
-						level.Info(l).Log("msg", "failed to execute specified query", "name", q.Name, "err", err)
+						if err != nil {
+							level.Info(l).Log("msg", "failed to execute specified query", "name", q.Name, "err", err)
+						}
 					}
 				}
 			}
