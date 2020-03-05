@@ -29,7 +29,7 @@ docker run --rm -p 8080:8080 quay.io/observatorium/up --endpoint-write=https://e
 ```txt
 Usage of ./up:
   -duration duration
-    	The duration of the up command to run until it stops. (default 5m0s)
+    	The duration of the up command to run until it stops. If 0 it will not stop until the process is terminated. (default 5m0s)
   -endpoint-read string
     	The endpoint to which to make query requests.
   -endpoint-write string
@@ -48,6 +48,8 @@ Usage of ./up:
     	The name of the metric to send in remote-write requests. (default "up")
   -period duration
     	The time to wait between remote-write requests. (default 5s)
+  -queries-file string
+    	A file containing queries to run against the read endpoint.
   -threshold float
     	The percentage of successful requests needed to succeed overall. 0 - 1. (default 0.9)
   -token string
