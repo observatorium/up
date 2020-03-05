@@ -395,9 +395,11 @@ func query(
 ) (err error) {
 	level.Debug(l).Log("msg", "running specified query", "name", query.Name, "query", query.Query)
 
+	// Copy URL to avoid modifying the passed value.
 	u := new(url.URL)
 	*u = *endpoint
 	u.Path = ""
+
 	r := newInstantQueryRoundTripper(token, nil)
 
 	c, err := promapi.NewClient(promapi.Config{
