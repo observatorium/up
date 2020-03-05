@@ -291,19 +291,23 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 					case <-ctx.Done():
 						return nil
 					default:
+						t := time.Now()
 						err := query(
 							ctx,
 							l,
 							opts.ReadEndpoint,
 							opts.Token,
 							q,
-							m.customQueryLastDuration.WithLabelValues(q.Name),
-							m.customQueryErrors.WithLabelValues(q.Name),
-							m.customQueryExecuted.WithLabelValues(q.Name),
 						)
+						duration := time.Since(t).Seconds()
 						if err != nil {
-							level.Info(l).Log("msg", "failed to execute specified query", "name", q.Name, "err", err)
+							level.Info(l).Log("msg", "failed to execute specified query", "name", q.Name, "duration", duration, "err", err)
+							m.customQueryErrors.WithLabelValues(q.Name).Inc()
+						} else {
+							level.Debug(l).Log("msg", "successfully executed specified query", "name", q.Name, "duration", duration)
+							m.customQueryLastDuration.WithLabelValues(q.Name).Set(duration)
 						}
+						m.customQueryExecuted.WithLabelValues(q.Name).Inc()
 					}
 				}
 			}
@@ -388,25 +392,8 @@ func query(
 	endpoint *url.URL,
 	token string,
 	query querySpec,
-	lastDuration prometheus.Gauge,
-	errors prometheus.Counter,
-	total prometheus.Counter,
 ) (err error) {
 	level.Debug(l).Log("msg", "running specified query", "name", query.Name, "query", query.Query)
-
-	t := time.Now()
-
-	defer func() {
-		total.Inc()
-		if err == nil {
-			d := time.Since(t).Seconds()
-			level.Debug(l).Log("msg", "successfully executed specified query", "name", query.Name, "duration", d)
-			lastDuration.Set(d)
-		}
-		if err != nil {
-			errors.Inc()
-		}
-	}()
 
 	u := new(url.URL)
 	*u = *endpoint
