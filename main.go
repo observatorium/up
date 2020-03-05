@@ -160,7 +160,7 @@ func main() {
 	reg := prometheus.NewRegistry()
 	m := registerMetrics(reg)
 
-	var g run.Group
+	g := &run.Group{}
 	{
 		// Signal chans must be buffered.
 		sig := make(chan os.Signal, 1)
@@ -266,7 +266,7 @@ func main() {
 	level.Info(l).Log("msg", "up completed its mission!")
 }
 
-func addCustomQueryRunGroup(ctx context.Context, g run.Group, l log.Logger, opts options, m metrics, cancel func()) {
+func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opts options, m metrics, cancel func()) {
 	g.Add(func() error {
 		l := log.With(l, "component", "query-reader")
 		level.Info(l).Log("msg", "starting the reader for queries")

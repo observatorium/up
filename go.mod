@@ -3,6 +3,7 @@ module github.com/observatorium/up
 go 1.13
 
 require (
+	github.com/OneOfOne/xxhash v1.2.6 // indirect
 	github.com/campoy/embedmd v1.0.0
 	github.com/go-kit/kit v0.10.0
 	github.com/gogo/protobuf v1.3.1
@@ -12,8 +13,8 @@ require (
 	github.com/prometheus/client_golang v1.4.1
 	github.com/prometheus/client_model v0.2.0
 	github.com/prometheus/common v0.9.1
-	github.com/prometheus/prometheus v1.8.2-0.20200304130602-d1c00bb7c2d1
-	github.com/thanos-io/thanos v0.10.1
+	github.com/prometheus/prometheus v1.8.2-0.20200305080338-7164b58945bb
+	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	gopkg.in/yaml.v2 v2.2.8
 )
 

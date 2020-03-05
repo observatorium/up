@@ -57,8 +57,10 @@ $(BIN_DIR):
 $(EMBEDMD): vendor $(BIN_DIR)
 	go build -mod=vendor -o $@ github.com/campoy/embedmd
 
-$(THANOS): vendor $(BIN_DIR)
-	go build -mod=vendor -o $@ github.com/thanos-io/thanos/cmd/thanos
+$(THANOS): $(BIN_DIR)
+	wget -O ./tmp/thanos.tar.gz https://github.com/thanos-io/thanos/releases/download/v0.11.0/thanos-0.11.0.linux-amd64.tar.gz
+	tar xvfz ./tmp/thanos.tar.gz -C ./tmp
+	mv ./tmp/thanos-0.11.0.linux-amd64/thanos $@
 
 $(GOLANGCILINT):
 	curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/$(GOLANGCILINT_VERSION)/install.sh \
