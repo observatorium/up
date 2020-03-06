@@ -292,7 +292,7 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 						return nil
 					default:
 						t := time.Now()
-						err := query(
+						warn, err := query(
 							ctx,
 							l,
 							opts.ReadEndpoint,
@@ -301,10 +301,20 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 						)
 						duration := time.Since(t).Seconds()
 						if err != nil {
-							level.Info(l).Log("msg", "failed to execute specified query", "name", q.Name, "duration", duration, "err", err)
+							level.Info(l).Log(
+								"msg", "failed to execute specified query",
+								"name", q.Name,
+								"duration", duration,
+								"warnings", fmt.Sprintf("%#+v", warn),
+								"err", err,
+							)
 							m.customQueryErrors.WithLabelValues(q.Name).Inc()
 						} else {
-							level.Debug(l).Log("msg", "successfully executed specified query", "name", q.Name, "duration", duration)
+							level.Debug(l).Log("msg", "successfully executed specified query",
+								"name", q.Name,
+								"duration", duration,
+								"warnings", fmt.Sprintf("%#+v", warn),
+							)
 							m.customQueryLastDuration.WithLabelValues(q.Name).Set(duration)
 						}
 						m.customQueryExecuted.WithLabelValues(q.Name).Inc()
@@ -392,7 +402,12 @@ func query(
 	endpoint *url.URL,
 	token string,
 	query querySpec,
-) (err error) {
+) (promapiv1.Warnings, error) {
+	var (
+		warn promapiv1.Warnings
+		err  error
+	)
+
 	level.Debug(l).Log("msg", "running specified query", "name", query.Name, "query", query.Query)
 
 	// Copy URL to avoid modifying the passed value.
@@ -408,20 +423,22 @@ func query(
 	})
 	if err != nil {
 		err = fmt.Errorf("create new API client: %w", err)
-		return
+		return warn, err
 	}
 
 	a := promapiv1.NewAPI(c)
 
-	res, _, err := a.Query(ctx, query.Query, time.Now())
+	var res model.Value
+
+	res, warn, err = a.Query(ctx, query.Query, time.Now())
 	if err != nil {
 		err = fmt.Errorf("querying: %w", err)
-		return
+		return warn, err
 	}
 
 	level.Debug(l).Log("msg", "request finished", "name", query.Name, "response", res.String(), "trace-id", r.TraceID)
 
-	return nil
+	return warn, err
 }
 
 // doGetFallback will attempt to do the request as-is, and on a 405 it will fallback to a GET request.
