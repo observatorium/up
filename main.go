@@ -125,7 +125,7 @@ type options struct {
 	Labels            labelArg
 	Listen            string
 	Name              string
-	Token             string
+	Token             TokenProvider
 	Queries           []querySpec
 	Period            time.Duration
 	Duration          time.Duration
@@ -364,26 +364,37 @@ func runPeriodically(ctx context.Context, opts options, c *prometheus.CounterVec
 	}
 }
 
+type TokenProvider interface {
+	Get() (string, error)
+}
+
 type instantQueryRoundTripper struct {
+	l       log.Logger
 	r       http.RoundTripper
-	token   string
+	t       TokenProvider
 	TraceID string
 }
 
-func newInstantQueryRoundTripper(token string, r http.RoundTripper) *instantQueryRoundTripper {
+func newInstantQueryRoundTripper(l log.Logger, t TokenProvider, r http.RoundTripper) *instantQueryRoundTripper {
 	if r == nil {
 		r = http.DefaultTransport
 	}
 
 	return &instantQueryRoundTripper{
-		token: token,
-		r:     r,
+		l: l,
+		t: t,
+		r: r,
 	}
 }
 
 func (r *instantQueryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	if r.token != "" {
-		req.Header.Add("Authorization", "Bearer "+r.token)
+	token, err := r.t.Get()
+	if err != nil {
+		return nil, err
+	}
+
+	if token != "" {
+		req.Header.Add("Authorization", "Bearer "+token)
 	}
 
 	resp, err := r.r.RoundTrip(req)
@@ -400,7 +411,7 @@ func query(
 	ctx context.Context,
 	l log.Logger,
 	endpoint *url.URL,
-	token string,
+	t TokenProvider,
 	query querySpec,
 ) (promapiv1.Warnings, error) {
 	var (
@@ -415,7 +426,7 @@ func query(
 	*u = *endpoint
 	u.Path = ""
 
-	r := newInstantQueryRoundTripper(token, nil)
+	r := newInstantQueryRoundTripper(l, t, nil)
 
 	c, err := promapi.NewClient(promapi.Config{
 		Address:      u.String(),
@@ -520,7 +531,7 @@ func read(ctx context.Context, endpoint *url.URL, labels []prompb.Label, ago, la
 	return nil
 }
 
-func write(ctx context.Context, endpoint fmt.Stringer, token string, wreq proto.Message, l log.Logger) error {
+func write(ctx context.Context, endpoint fmt.Stringer, t TokenProvider, wreq proto.Message, l log.Logger) error {
 	var (
 		buf []byte
 		err error
@@ -538,7 +549,14 @@ func write(ctx context.Context, endpoint fmt.Stringer, token string, wreq proto.
 		return errors.Wrap(err, "creating request")
 	}
 
-	req.Header.Add("Authorization", "Bearer "+token)
+	token, err := t.Get()
+	if err != nil {
+		return errors.Wrap(err, "retrieving token")
+	}
+
+	if token != "" {
+		req.Header.Add("Authorization", "Bearer "+token)
+	}
 
 	res, err = http.DefaultClient.Do(req.WithContext(ctx)) //nolint:bodyclose
 	if err != nil {
@@ -623,6 +641,8 @@ func parseFlags(l log.Logger) (options, error) {
 		rawReadEndpoint  string
 		rawLogLevel      string
 		queriesFileName  string
+		tokenFile        string
+		token            string
 	)
 
 	opts := options{}
@@ -633,7 +653,10 @@ func parseFlags(l log.Logger) (options, error) {
 	flag.Var(&opts.Labels, "labels", "The labels in addition to '__name__' that should be applied to remote-write requests.")
 	flag.StringVar(&opts.Listen, "listen", ":8080", "The address on which internal server runs.")
 	flag.StringVar(&opts.Name, "name", "up", "The name of the metric to send in remote-write requests.")
-	flag.StringVar(&opts.Token, "token", "", "The bearer token to set in the authorization header on remote-write requests.")
+	flag.StringVar(&token, "token", "",
+		"The bearer token to set in the authorization header on remote-write requests. Takes predence over --token-file if set.")
+	flag.StringVar(&tokenFile, "token-file", "",
+		"The file to read a bearer token from and set in the authorization header on remote-write requests.")
 	flag.StringVar(&queriesFileName, "queries-file", "", "A file containing queries to run against the read endpoint.")
 	flag.DurationVar(&opts.Period, "period", 5*time.Second, "The time to wait between remote-write requests.")
 	flag.DurationVar(&opts.Duration, "duration", 5*time.Minute,
@@ -643,13 +666,13 @@ func parseFlags(l log.Logger) (options, error) {
 	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second, "The time to wait before executing the first query.")
 	flag.Parse()
 
-	return buildOptionsFromFlags(l, opts, rawLogLevel, rawWriteEndpoint, rawReadEndpoint, queriesFileName)
+	return buildOptionsFromFlags(l, opts, rawLogLevel, rawWriteEndpoint, rawReadEndpoint, queriesFileName, token, tokenFile)
 }
 
 func buildOptionsFromFlags(
 	l log.Logger,
 	opts options,
-	rawLogLevel, rawWriteEndpoint, rawReadEndpoint, queriesFileName string,
+	rawLogLevel, rawWriteEndpoint, rawReadEndpoint, queriesFileName, token, tokenFile string,
 ) (options, error) {
 	var err error
 
@@ -726,7 +749,24 @@ func buildOptionsFromFlags(
 		Value: opts.Name,
 	})
 
+	opts.Token = tokenProvider(token, tokenFile)
+
 	return opts, err
+}
+
+func tokenProvider(token, tokenFile string) TokenProvider {
+	var res TokenProvider
+
+	res = NewNoOpTokenProvider()
+	if tokenFile != "" {
+		res = NewFileToken(tokenFile)
+	}
+
+	if token != "" {
+		res = NewStaticToken(token)
+	}
+
+	return res
 }
 
 func registerMetrics(reg *prometheus.Registry) metrics {

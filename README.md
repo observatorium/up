@@ -53,5 +53,7 @@ Usage of ./up:
   -threshold float
     	The percentage of successful requests needed to succeed overall. 0 - 1. (default 0.9)
   -token string
-    	The bearer token to set in the authorization header on remote-write requests.
+    	The bearer token to set in the authorization header on remote-write requests. Takes predence over --token-file if set.
+  -token-file string
+    	The file to read a bearer token from and set in the authorization header on remote-write requests.
 ```
