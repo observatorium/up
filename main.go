@@ -364,6 +364,10 @@ func runPeriodically(ctx context.Context, opts options, c *prometheus.CounterVec
 	}
 }
 
+type TokenProvider interface {
+	Get() (string, error)
+}
+
 type instantQueryRoundTripper struct {
 	l       log.Logger
 	r       http.RoundTripper

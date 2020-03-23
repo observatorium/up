@@ -9,10 +9,6 @@ func NewNoOpTokenProvider() *StaticToken {
 	return &StaticToken{token: ""}
 }
 
-type TokenProvider interface {
-	Get() (string, error)
-}
-
 type StaticToken struct {
 	token string
 }
