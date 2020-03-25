@@ -319,7 +319,9 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 						}
 						m.customQueryExecuted.WithLabelValues(q.Name).Inc()
 					}
+					time.Sleep(100 * time.Millisecond)
 				}
+				time.Sleep(100 * time.Millisecond)
 			}
 		}
 	}, func(_ error) {
