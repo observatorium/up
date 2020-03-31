@@ -160,6 +160,9 @@ func main() {
 	reg := prometheus.NewRegistry()
 	m := registerMetrics(reg)
 
+	// Error channel to gather failures
+	ch := make(chan error, 2)
+
 	g := &run.Group{}
 	{
 		// Signal chans must be buffered.
@@ -174,30 +177,7 @@ func main() {
 		})
 	}
 	// Schedule HTTP server
-	{
-		logger := log.With(l, "component", "http")
-		router := http.NewServeMux()
-		router.Handle("/metrics", promhttp.InstrumentMetricHandler(reg, promhttp.HandlerFor(reg, promhttp.HandlerOpts{})))
-		router.HandleFunc("/debug/pprof/", pprof.Index)
-
-		srv := &http.Server{Addr: opts.Listen, Handler: router}
-
-		g.Add(func() error {
-			level.Info(logger).Log("msg", "starting the HTTP server", "address", opts.Listen)
-			return srv.ListenAndServe()
-		}, func(err error) {
-			if err == http.ErrServerClosed {
-				level.Warn(logger).Log("msg", "internal server closed unexpectedly")
-				return
-			}
-			level.Info(logger).Log("msg", "shutting down internal server")
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			if err := srv.Shutdown(ctx); err != nil {
-				stdlog.Fatal(err)
-			}
-		})
-	}
+	scheduleHTTPServer(l, opts, reg, g)
 
 	ctx := context.Background()
 
@@ -213,7 +193,7 @@ func main() {
 			l := log.With(l, "component", "writer")
 			level.Info(l).Log("msg", "starting the writer")
 
-			return runPeriodically(ctx, opts, m.remoteWriteRequests, l, func(rCtx context.Context) {
+			return runPeriodically(ctx, opts, m.remoteWriteRequests, l, ch, func(rCtx context.Context) {
 				if err := write(rCtx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
 					m.remoteWriteRequests.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to make request", "err", err)
@@ -241,7 +221,7 @@ func main() {
 
 			level.Info(l).Log("msg", "start querying for metrics")
 
-			return runPeriodically(ctx, opts, m.queryResponses, l, func(rCtx context.Context) {
+			return runPeriodically(ctx, opts, m.queryResponses, l, ch, func(rCtx context.Context) {
 				if err := read(rCtx, opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m); err != nil {
 					m.queryResponses.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to query", "err", err)
@@ -259,7 +239,20 @@ func main() {
 	}
 
 	if err := g.Run(); err != nil {
-		level.Error(l).Log("msg", "run group exited with error", "err", err)
+		level.Info(l).Log("msg", "run group exited with error", "err", err)
+	}
+
+	close(ch)
+
+	fail := false
+	for err := range ch {
+		fail = true
+
+		level.Error(l).Log("err", err)
+	}
+
+	if fail {
+		level.Error(l).Log("msg", "up failed")
 		os.Exit(1)
 	}
 
@@ -329,7 +322,8 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 	})
 }
 
-func runPeriodically(ctx context.Context, opts options, c *prometheus.CounterVec, l log.Logger, f func(rCtx context.Context)) error {
+func runPeriodically(ctx context.Context, opts options, c *prometheus.CounterVec, l log.Logger, ch chan error,
+	f func(rCtx context.Context)) error {
 	var (
 		t        = time.NewTicker(opts.Period)
 		deadline time.Time
@@ -361,7 +355,7 @@ func runPeriodically(ctx context.Context, opts options, c *prometheus.CounterVec
 			case <-rCtx.Done():
 			}
 
-			return reportResults(l, c, opts.SuccessThreshold)
+			return reportResults(l, ch, c, opts.SuccessThreshold)
 		}
 	}
 }
@@ -575,7 +569,7 @@ func write(ctx context.Context, endpoint fmt.Stringer, t TokenProvider, wreq pro
 	return nil
 }
 
-func reportResults(l log.Logger, c *prometheus.CounterVec, threshold float64) error {
+func reportResults(l log.Logger, ch chan error, c *prometheus.CounterVec, threshold float64) error {
 	metrics := make(chan prometheus.Metric, 2)
 	c.Collect(metrics)
 	close(metrics)
@@ -603,7 +597,11 @@ func reportResults(l log.Logger, c *prometheus.CounterVec, threshold float64) er
 	ratio := success / (success + errors)
 	if ratio < threshold {
 		level.Error(l).Log("msg", "ratio is below threshold")
-		return fmt.Errorf("failed with less than %2.f%% success ratio - actual %2.f%%", threshold*100, ratio*100)
+
+		err := fmt.Errorf("failed with less than %2.f%% success ratio - actual %2.f%%", threshold*100, ratio*100)
+		ch <- err
+
+		return err
 	}
 
 	return nil
@@ -825,4 +823,29 @@ func exhaustCloseWithLogOnErr(l log.Logger, rc io.ReadCloser) {
 
 func formatTime(t time.Time) string {
 	return strconv.FormatFloat(float64(t.Unix())+float64(t.Nanosecond())/1e9, 'f', -1, 64)
+}
+
+func scheduleHTTPServer(l log.Logger, opts options, reg *prometheus.Registry, g *run.Group) {
+	logger := log.With(l, "component", "http")
+	router := http.NewServeMux()
+	router.Handle("/metrics", promhttp.InstrumentMetricHandler(reg, promhttp.HandlerFor(reg, promhttp.HandlerOpts{})))
+	router.HandleFunc("/debug/pprof/", pprof.Index)
+
+	srv := &http.Server{Addr: opts.Listen, Handler: router}
+
+	g.Add(func() error {
+		level.Info(logger).Log("msg", "starting the HTTP server", "address", opts.Listen)
+		return srv.ListenAndServe()
+	}, func(err error) {
+		if err == http.ErrServerClosed {
+			level.Warn(logger).Log("msg", "internal server closed unexpectedly")
+			return
+		}
+		level.Info(logger).Log("msg", "shutting down internal server")
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			stdlog.Fatal(err)
+		}
+	})
 }
