@@ -52,6 +52,12 @@ Usage of ./up:
     	A file containing queries to run against the read endpoint.
   -threshold float
     	The percentage of successful requests needed to succeed overall. 0 - 1. (default 0.9)
+  -tls-ca-file string
+    	File containing the TLS CA to use against servers for verification. If no CA is specified, there won't be any verification.
+  -tls-client-cert-file string
+    	File containing the default x509 Certificate for HTTPS. Leave blank to disable TLS.
+  -tls-client-private-key-file string
+    	File containing the default x509 private key matching --tls-cert-file. Leave blank to disable TLS.
   -token string
     	The bearer token to set in the authorization header on remote-write requests. Takes predence over --token-file if set.
   -token-file string

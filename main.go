@@ -29,6 +29,8 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+const https = "https"
+
 type TokenProvider interface {
 	Get() (string, error)
 }
@@ -75,6 +77,12 @@ func (la *labelArg) Set(v string) error {
 	return nil
 }
 
+type tlsOptions struct {
+	Cert   string
+	Key    string
+	CACert string
+}
+
 type options struct {
 	LogLevel          level.Option
 	WriteEndpoint     *url.URL
@@ -89,6 +97,7 @@ type options struct {
 	Latency           time.Duration
 	InitialQueryDelay time.Duration
 	SuccessThreshold  float64
+	tls               tlsOptions
 }
 
 func main() {
@@ -142,7 +151,7 @@ func main() {
 			level.Info(l).Log("msg", "starting the writer")
 
 			return runPeriodically(ctx, opts, m.remoteWriteRequests, l, ch, func(rCtx context.Context) {
-				if err := write(rCtx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
+				if err := write(rCtx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l, opts.tls); err != nil {
 					m.remoteWriteRequests.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to make request", "err", err)
 				} else {
@@ -170,7 +179,7 @@ func main() {
 			level.Info(l).Log("msg", "start querying for metrics")
 
 			return runPeriodically(ctx, opts, m.queryResponses, l, ch, func(rCtx context.Context) {
-				if err := read(rCtx, opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m); err != nil {
+				if err := read(rCtx, opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m, l, opts.tls); err != nil {
 					m.queryResponses.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to query", "err", err)
 				} else {
@@ -239,6 +248,7 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 							opts.ReadEndpoint,
 							opts.Token,
 							q,
+							opts.tls,
 						)
 						duration := time.Since(t).Seconds()
 						if err != nil {
@@ -377,6 +387,12 @@ func parseFlags(l log.Logger) (options, error) {
 	flag.Float64Var(&opts.SuccessThreshold, "threshold", 0.9, "The percentage of successful requests needed to succeed overall. 0 - 1.")
 	flag.DurationVar(&opts.Latency, "latency", 15*time.Second, "The maximum allowable latency between writing and reading.")
 	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second, "The time to wait before executing the first query.")
+	flag.StringVar(&opts.tls.Cert, "tls-client-cert-file", "",
+		"File containing the default x509 Certificate for HTTPS. Leave blank to disable TLS.")
+	flag.StringVar(&opts.tls.Key, "tls-client-private-key-file", "",
+		"File containing the default x509 private key matching --tls-cert-file. Leave blank to disable TLS.")
+	flag.StringVar(&opts.tls.CACert, "tls-ca-file", "",
+		"File containing the TLS CA to use against servers for verification. If no CA is specified, there won't be any verification.")
 	flag.Parse()
 
 	return buildOptionsFromFlags(l, opts, rawLogLevel, rawWriteEndpoint, rawReadEndpoint, queriesFileName, token, tokenFile)

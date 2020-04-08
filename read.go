@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-kit/kit/log"
 	"github.com/pkg/errors"
 	promapi "github.com/prometheus/client_golang/api"
 	"github.com/prometheus/common/model"
@@ -59,8 +60,33 @@ func (qr *queryResult) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-func read(ctx context.Context, endpoint *url.URL, labels []prompb.Label, ago, latency time.Duration, m metrics) error {
-	client, err := promapi.NewClient(promapi.Config{Address: endpoint.String()})
+func read(
+	ctx context.Context,
+	endpoint *url.URL,
+	labels []prompb.Label,
+	ago, latency time.Duration,
+	m metrics,
+	l log.Logger,
+	tls tlsOptions,
+) error {
+	var (
+		rt  http.RoundTripper
+		err error
+	)
+
+	if endpoint.Scheme == https {
+		rt, err = newTLSTransport(l, tls)
+		if err != nil {
+			return errors.Wrap(err, "create round tripper")
+		}
+	} else {
+		rt = http.DefaultTransport
+	}
+
+	client, err := promapi.NewClient(promapi.Config{
+		Address:      endpoint.String(),
+		RoundTripper: rt,
+	})
 	if err != nil {
 		return err
 	}

@@ -3,8 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/go-kit/kit/log"
@@ -14,13 +14,25 @@ import (
 	"github.com/prometheus/prometheus/prompb"
 )
 
-func write(ctx context.Context, endpoint fmt.Stringer, t TokenProvider, wreq proto.Message, l log.Logger) error {
+func write(ctx context.Context, endpoint *url.URL, t TokenProvider, wreq proto.Message, l log.Logger, tls tlsOptions) error {
 	var (
 		buf []byte
 		err error
 		req *http.Request
 		res *http.Response
+		rt  http.RoundTripper
 	)
+
+	if endpoint.Scheme == https {
+		rt, err = newTLSTransport(l, tls)
+		if err != nil {
+			return errors.Wrap(err, "create round tripper")
+		}
+	} else {
+		rt = http.DefaultTransport
+	}
+
+	client := &http.Client{Transport: rt}
 
 	buf, err = proto.Marshal(wreq)
 	if err != nil {
@@ -41,7 +53,7 @@ func write(ctx context.Context, endpoint fmt.Stringer, t TokenProvider, wreq pro
 		req.Header.Add("Authorization", "Bearer "+token)
 	}
 
-	res, err = http.DefaultClient.Do(req.WithContext(ctx)) //nolint:bodyclose
+	res, err = client.Do(req.WithContext(ctx)) //nolint:bodyclose
 	if err != nil {
 		return errors.Wrap(err, "making request")
 	}

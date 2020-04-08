@@ -48,7 +48,7 @@ README.md: $(EMBEDMD) tmp/help.txt
 	$(EMBEDMD) -w README.md
 
 .PHONY: test-integration
-test-integration: build $(THANOS) test/integration.sh
+test-integration: build test/integration.sh | $(THANOS)
 	PATH=$$PATH:$$(pwd)/$(BIN_DIR) ./test/integration.sh
 
 $(BIN_DIR):

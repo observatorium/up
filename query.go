@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
+	"github.com/pkg/errors"
 	promapi "github.com/prometheus/client_golang/api"
 	promapiv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
@@ -64,10 +65,12 @@ func query(
 	endpoint *url.URL,
 	t TokenProvider,
 	query querySpec,
+	tls tlsOptions,
 ) (promapiv1.Warnings, error) {
 	var (
 		warn promapiv1.Warnings
 		err  error
+		rt   *instantQueryRoundTripper
 	)
 
 	level.Debug(l).Log("msg", "running specified query", "name", query.Name, "query", query.Query)
@@ -77,11 +80,20 @@ func query(
 	*u = *endpoint
 	u.Path = ""
 
-	r := newInstantQueryRoundTripper(l, t, nil)
+	if u.Scheme == https {
+		tp, err := newTLSTransport(l, tls)
+		if err != nil {
+			return warn, errors.Wrap(err, "create round tripper")
+		}
+
+		rt = newInstantQueryRoundTripper(l, t, tp)
+	} else {
+		rt = newInstantQueryRoundTripper(l, t, nil)
+	}
 
 	c, err := promapi.NewClient(promapi.Config{
 		Address:      u.String(),
-		RoundTripper: r,
+		RoundTripper: rt,
 	})
 	if err != nil {
 		err = fmt.Errorf("create new API client: %w", err)
@@ -98,7 +110,7 @@ func query(
 		return warn, err
 	}
 
-	level.Debug(l).Log("msg", "request finished", "name", query.Name, "response", res.String(), "trace-id", r.TraceID)
+	level.Debug(l).Log("msg", "request finished", "name", query.Name, "response", res.String(), "trace-id", rt.TraceID)
 
 	return warn, err
 }
