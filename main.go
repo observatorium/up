@@ -1,12 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	stdlog "log"
 	"net/http"
@@ -21,12 +18,8 @@ import (
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
-	"github.com/gogo/protobuf/proto"
-	"github.com/golang/snappy"
 	"github.com/oklog/run"
 	"github.com/pkg/errors"
-	promapi "github.com/prometheus/client_golang/api"
-	promapiv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	dto "github.com/prometheus/client_model/go"
@@ -35,6 +28,16 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 	"gopkg.in/yaml.v2"
 )
+
+const https = "https"
+
+type TokenProvider interface {
+	Get() (string, error)
+}
+
+type queriesFile struct {
+	Queries []querySpec `yaml:"queries"`
+}
 
 type labelArg []prompb.Label
 
@@ -74,48 +77,10 @@ func (la *labelArg) Set(v string) error {
 	return nil
 }
 
-type queryResult struct {
-	Type   model.ValueType `json:"resultType"`
-	Result interface{}     `json:"result"`
-
-	v model.Value
-}
-
-func (qr *queryResult) UnmarshalJSON(b []byte) error {
-	v := struct {
-		Status string `json:"status"`
-		Data   struct {
-			Type   model.ValueType `json:"resultType"`
-			Result json.RawMessage `json:"result"`
-		} `json:"data"`
-	}{}
-
-	err := json.Unmarshal(b, &v)
-	if err != nil {
-		return err
-	}
-
-	switch v.Data.Type {
-	case model.ValScalar:
-		var sv model.Scalar
-		err = json.Unmarshal(v.Data.Result, &sv)
-		qr.v = &sv
-
-	case model.ValVector:
-		var vv model.Vector
-		err = json.Unmarshal(v.Data.Result, &vv)
-		qr.v = vv
-
-	case model.ValMatrix:
-		var mv model.Matrix
-		err = json.Unmarshal(v.Data.Result, &mv)
-		qr.v = mv
-
-	default:
-		err = fmt.Errorf("unexpected value type %q", v.Data.Type)
-	}
-
-	return err
+type tlsOptions struct {
+	Cert   string
+	Key    string
+	CACert string
 }
 
 type options struct {
@@ -132,15 +97,7 @@ type options struct {
 	Latency           time.Duration
 	InitialQueryDelay time.Duration
 	SuccessThreshold  float64
-}
-
-type metrics struct {
-	remoteWriteRequests     *prometheus.CounterVec
-	queryResponses          *prometheus.CounterVec
-	metricValueDifference   prometheus.Histogram
-	customQueryExecuted     *prometheus.CounterVec
-	customQueryErrors       *prometheus.CounterVec
-	customQueryLastDuration *prometheus.GaugeVec
+	tls               tlsOptions
 }
 
 func main() {
@@ -194,7 +151,7 @@ func main() {
 			level.Info(l).Log("msg", "starting the writer")
 
 			return runPeriodically(ctx, opts, m.remoteWriteRequests, l, ch, func(rCtx context.Context) {
-				if err := write(rCtx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l); err != nil {
+				if err := write(rCtx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l, opts.tls); err != nil {
 					m.remoteWriteRequests.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to make request", "err", err)
 				} else {
@@ -222,7 +179,7 @@ func main() {
 			level.Info(l).Log("msg", "start querying for metrics")
 
 			return runPeriodically(ctx, opts, m.queryResponses, l, ch, func(rCtx context.Context) {
-				if err := read(rCtx, opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m); err != nil {
+				if err := read(rCtx, opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m, l, opts.tls); err != nil {
 					m.queryResponses.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to query", "err", err)
 				} else {
@@ -291,6 +248,7 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 							opts.ReadEndpoint,
 							opts.Token,
 							q,
+							opts.tls,
 						)
 						duration := time.Since(t).Seconds()
 						if err != nil {
@@ -360,215 +318,6 @@ func runPeriodically(ctx context.Context, opts options, c *prometheus.CounterVec
 	}
 }
 
-type TokenProvider interface {
-	Get() (string, error)
-}
-
-type instantQueryRoundTripper struct {
-	l       log.Logger
-	r       http.RoundTripper
-	t       TokenProvider
-	TraceID string
-}
-
-func newInstantQueryRoundTripper(l log.Logger, t TokenProvider, r http.RoundTripper) *instantQueryRoundTripper {
-	if r == nil {
-		r = http.DefaultTransport
-	}
-
-	return &instantQueryRoundTripper{
-		l: l,
-		t: t,
-		r: r,
-	}
-}
-
-func (r *instantQueryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	token, err := r.t.Get()
-	if err != nil {
-		return nil, err
-	}
-
-	if token != "" {
-		req.Header.Add("Authorization", "Bearer "+token)
-	}
-
-	resp, err := r.r.RoundTrip(req)
-	if err != nil {
-		return resp, err
-	}
-
-	r.TraceID = resp.Header.Get("X-Thanos-Trace-Id")
-
-	return resp, err
-}
-
-func query(
-	ctx context.Context,
-	l log.Logger,
-	endpoint *url.URL,
-	t TokenProvider,
-	query querySpec,
-) (promapiv1.Warnings, error) {
-	var (
-		warn promapiv1.Warnings
-		err  error
-	)
-
-	level.Debug(l).Log("msg", "running specified query", "name", query.Name, "query", query.Query)
-
-	// Copy URL to avoid modifying the passed value.
-	u := new(url.URL)
-	*u = *endpoint
-	u.Path = ""
-
-	r := newInstantQueryRoundTripper(l, t, nil)
-
-	c, err := promapi.NewClient(promapi.Config{
-		Address:      u.String(),
-		RoundTripper: r,
-	})
-	if err != nil {
-		err = fmt.Errorf("create new API client: %w", err)
-		return warn, err
-	}
-
-	a := promapiv1.NewAPI(c)
-
-	var res model.Value
-
-	res, warn, err = a.Query(ctx, query.Query, time.Now())
-	if err != nil {
-		err = fmt.Errorf("querying: %w", err)
-		return warn, err
-	}
-
-	level.Debug(l).Log("msg", "request finished", "name", query.Name, "response", res.String(), "trace-id", r.TraceID)
-
-	return warn, err
-}
-
-// doGetFallback will attempt to do the request as-is, and on a 405 it will fallback to a GET request.
-// Copied from the prometheus API client v1.2.1 (as it was removed afterwards).
-// https://github.com/prometheus/client_golang/blob/55450579111f95e3722cb93dec62fe9e847d6130/api/client.go#L64
-func doGetFallback(ctx context.Context, c promapi.Client, u *url.URL, args url.Values) (*http.Response, []byte, error) {
-	req, err := http.NewRequest(http.MethodPost, u.String(), strings.NewReader(args.Encode()))
-	if err != nil {
-		return nil, nil, err
-	}
-
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, body, err := c.Do(ctx, req)
-	if resp != nil && resp.StatusCode == http.StatusMethodNotAllowed {
-		u.RawQuery = args.Encode()
-		req, err = http.NewRequest(http.MethodGet, u.String(), nil)
-
-		if err != nil {
-			return nil, nil, err
-		}
-	} else {
-		if err != nil {
-			return resp, body, err
-		}
-
-		return resp, body, nil
-	}
-
-	return c.Do(ctx, req)
-}
-
-func read(ctx context.Context, endpoint *url.URL, labels []prompb.Label, ago, latency time.Duration, m metrics) error {
-	client, err := promapi.NewClient(promapi.Config{Address: endpoint.String()})
-	if err != nil {
-		return err
-	}
-
-	labelSelectors := make([]string, len(labels))
-	for i, label := range labels {
-		labelSelectors[i] = fmt.Sprintf(`%s="%s"`, label.Name, label.Value)
-	}
-
-	query := fmt.Sprintf("{%s}", strings.Join(labelSelectors, ","))
-
-	q := endpoint.Query()
-	q.Set("query", query)
-
-	ts := time.Now().Add(ago)
-	if !ts.IsZero() {
-		q.Set("time", formatTime(ts))
-	}
-
-	_, body, err := doGetFallback(ctx, client, endpoint, q) //nolint:bodyclose
-	if err != nil {
-		return errors.Wrap(err, "query request failed")
-	}
-
-	var result queryResult
-	if err := json.Unmarshal(body, &result); err != nil {
-		return errors.Wrap(err, "query response parse failed")
-	}
-
-	vec := result.v.(model.Vector)
-	if len(vec) != 1 {
-		return fmt.Errorf("expected one metric, got %d", len(vec))
-	}
-
-	t := time.Unix(int64(vec[0].Value/1000), 0)
-
-	diffSeconds := time.Since(t).Seconds()
-
-	m.metricValueDifference.Observe(diffSeconds)
-
-	if diffSeconds > latency.Seconds() {
-		return fmt.Errorf("metric value is too old: %2.fs", diffSeconds)
-	}
-
-	return nil
-}
-
-func write(ctx context.Context, endpoint fmt.Stringer, t TokenProvider, wreq proto.Message, l log.Logger) error {
-	var (
-		buf []byte
-		err error
-		req *http.Request
-		res *http.Response
-	)
-
-	buf, err = proto.Marshal(wreq)
-	if err != nil {
-		return errors.Wrap(err, "marshalling proto")
-	}
-
-	req, err = http.NewRequest("POST", endpoint.String(), bytes.NewBuffer(snappy.Encode(nil, buf)))
-	if err != nil {
-		return errors.Wrap(err, "creating request")
-	}
-
-	token, err := t.Get()
-	if err != nil {
-		return errors.Wrap(err, "retrieving token")
-	}
-
-	if token != "" {
-		req.Header.Add("Authorization", "Bearer "+token)
-	}
-
-	res, err = http.DefaultClient.Do(req.WithContext(ctx)) //nolint:bodyclose
-	if err != nil {
-		return errors.Wrap(err, "making request")
-	}
-
-	defer exhaustCloseWithLogOnErr(l, res.Body)
-
-	if res.StatusCode != http.StatusOK {
-		err = errors.New(res.Status)
-		return errors.Wrap(err, "non-200 status")
-	}
-
-	return nil
-}
-
 func reportResults(l log.Logger, ch chan error, c *prometheus.CounterVec, threshold float64) error {
 	metrics := make(chan prometheus.Metric, 2)
 	c.Collect(metrics)
@@ -607,34 +356,8 @@ func reportResults(l log.Logger, ch chan error, c *prometheus.CounterVec, thresh
 	return nil
 }
 
-func generate(labels []prompb.Label) *prompb.WriteRequest {
-	timestamp := time.Now().UnixNano() / int64(time.Millisecond)
-
-	return &prompb.WriteRequest{
-		Timeseries: []prompb.TimeSeries{
-			{
-				Labels: labels,
-				Samples: []prompb.Sample{
-					{
-						Value:     float64(timestamp),
-						Timestamp: timestamp,
-					},
-				},
-			},
-		},
-	}
-}
-
-type querySpec struct {
-	Name  string `yaml:"name"`
-	Query string `yaml:"query"`
-}
-
-type queriesFile struct {
-	Queries []querySpec `yaml:"queries"`
-}
-
 // Helpers
+
 func parseFlags(l log.Logger) (options, error) {
 	var (
 		rawWriteEndpoint string
@@ -664,6 +387,12 @@ func parseFlags(l log.Logger) (options, error) {
 	flag.Float64Var(&opts.SuccessThreshold, "threshold", 0.9, "The percentage of successful requests needed to succeed overall. 0 - 1.")
 	flag.DurationVar(&opts.Latency, "latency", 15*time.Second, "The maximum allowable latency between writing and reading.")
 	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second, "The time to wait before executing the first query.")
+	flag.StringVar(&opts.tls.Cert, "tls-client-cert-file", "",
+		"File containing the default x509 Certificate for HTTPS. Leave blank to disable TLS.")
+	flag.StringVar(&opts.tls.Key, "tls-client-private-key-file", "",
+		"File containing the default x509 private key matching --tls-cert-file. Leave blank to disable TLS.")
+	flag.StringVar(&opts.tls.CACert, "tls-ca-file", "",
+		"File containing the TLS CA to use against servers for verification. If no CA is specified, there won't be any verification.")
 	flag.Parse()
 
 	return buildOptionsFromFlags(l, opts, rawLogLevel, rawWriteEndpoint, rawReadEndpoint, queriesFileName, token, tokenFile)
@@ -767,62 +496,6 @@ func tokenProvider(token, tokenFile string) TokenProvider {
 	}
 
 	return res
-}
-
-func registerMetrics(reg *prometheus.Registry) metrics {
-	m := metrics{
-		remoteWriteRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "up_remote_writes_total",
-			Help: "Total number of remote write requests.",
-		}, []string{"result"}),
-		queryResponses: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "up_queries_total",
-			Help: "The total number of queries made.",
-		}, []string{"result"}),
-		metricValueDifference: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:    "up_metric_value_difference",
-			Help:    "The time difference between the current timestamp and the timestamp in the metrics value.",
-			Buckets: prometheus.LinearBuckets(4, 0.25, 16),
-		}),
-		customQueryExecuted: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "up_custom_query_executed_total",
-			Help: "The total number of custom specified queries executed.",
-		}, []string{"query"}),
-		customQueryErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "up_custom_query_errors_total",
-			Help: "The total number of custom specified queries executed.",
-		}, []string{"query"}),
-		customQueryLastDuration: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "up_custom_query_last_duration",
-			Help: "The duration of the query execution last time the query was executed successfully.",
-		}, []string{"query"}),
-	}
-	reg.MustRegister(
-		prometheus.NewGoCollector(),
-		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
-		m.remoteWriteRequests,
-		m.queryResponses,
-		m.metricValueDifference,
-		m.customQueryExecuted,
-		m.customQueryErrors,
-		m.customQueryLastDuration,
-	)
-
-	return m
-}
-
-func exhaustCloseWithLogOnErr(l log.Logger, rc io.ReadCloser) {
-	if _, err := io.Copy(ioutil.Discard, rc); err != nil {
-		level.Warn(l).Log("msg", "failed to exhaust reader, performance may be impeded", "err", err)
-	}
-
-	if err := rc.Close(); err != nil {
-		level.Warn(l).Log("msg", "detected close error", "err", errors.Wrap(err, "response body close"))
-	}
-}
-
-func formatTime(t time.Time) string {
-	return strconv.FormatFloat(float64(t.Unix())+float64(t.Nanosecond())/1e9, 'f', -1, 64)
 }
 
 func scheduleHTTPServer(l log.Logger, opts options, reg *prometheus.Registry, g *run.Group) {
