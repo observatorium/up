@@ -63,6 +63,7 @@ func (qr *queryResult) UnmarshalJSON(b []byte) error {
 func read(
 	ctx context.Context,
 	endpoint *url.URL,
+	tp TokenProvider,
 	labels []prompb.Label,
 	ago, latency time.Duration,
 	m metrics,
@@ -79,8 +80,10 @@ func read(
 		if err != nil {
 			return errors.Wrap(err, "create round tripper")
 		}
+
+		rt = newInstantQueryRoundTripper(l, tp, rt)
 	} else {
-		rt = http.DefaultTransport
+		rt = newInstantQueryRoundTripper(l, tp, nil)
 	}
 
 	client, err := promapi.NewClient(promapi.Config{
