@@ -179,7 +179,7 @@ func main() {
 			level.Info(l).Log("msg", "start querying for metrics")
 
 			return runPeriodically(ctx, opts, m.queryResponses, l, ch, func(rCtx context.Context) {
-				if err := read(rCtx, opts.ReadEndpoint, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m, l, opts.tls); err != nil {
+				if err := read(rCtx, opts.ReadEndpoint, opts.Token, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m, l, opts.tls); err != nil {
 					m.queryResponses.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to query", "err", err)
 				} else {
@@ -377,9 +377,9 @@ func parseFlags(l log.Logger) (options, error) {
 	flag.StringVar(&opts.Listen, "listen", ":8080", "The address on which internal server runs.")
 	flag.StringVar(&opts.Name, "name", "up", "The name of the metric to send in remote-write requests.")
 	flag.StringVar(&token, "token", "",
-		"The bearer token to set in the authorization header on remote-write requests. Takes predence over --token-file if set.")
+		"The bearer token to set in the authorization header on requests. Takes predence over --token-file if set.")
 	flag.StringVar(&tokenFile, "token-file", "",
-		"The file to read a bearer token from and set in the authorization header on remote-write requests.")
+		"The file from which to read a bearer token to set in the authorization header on requests.")
 	flag.StringVar(&queriesFileName, "queries-file", "", "A file containing queries to run against the read endpoint.")
 	flag.DurationVar(&opts.Period, "period", 5*time.Second, "The time to wait between remote-write requests.")
 	flag.DurationVar(&opts.Duration, "duration", 5*time.Minute,

@@ -59,7 +59,7 @@ Usage of ./up:
   -tls-client-private-key-file string
     	File containing the default x509 private key matching --tls-cert-file. Leave blank to disable TLS.
   -token string
-    	The bearer token to set in the authorization header on remote-write requests. Takes predence over --token-file if set.
+    	The bearer token to set in the authorization header on requests. Takes predence over --token-file if set.
   -token-file string
-    	The file to read a bearer token from and set in the authorization header on remote-write requests.
+    	The file from which to read a bearer token to set in the authorization header on requests.
 ```
