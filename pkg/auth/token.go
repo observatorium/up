@@ -1,9 +1,13 @@
-package main
+package auth
 
 import (
 	"io/ioutil"
 	"strings"
 )
+
+type TokenProvider interface {
+	Get() (string, error)
+}
 
 func NewNoOpTokenProvider() *StaticToken {
 	return &StaticToken{token: ""}

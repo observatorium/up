@@ -11,93 +11,27 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
+	"github.com/observatorium/up/pkg/auth"
+	"github.com/observatorium/up/pkg/metrics"
+	"github.com/observatorium/up/pkg/options"
+	"github.com/observatorium/up/pkg/util"
 	"github.com/oklog/run"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	dto "github.com/prometheus/client_model/go"
-	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/promql/parser"
 	"gopkg.in/yaml.v2"
 )
 
-const https = "https"
-
-type TokenProvider interface {
-	Get() (string, error)
-}
-
 type queriesFile struct {
-	Queries []querySpec `yaml:"queries"`
-}
-
-type labelArg []prompb.Label
-
-func (la *labelArg) String() string {
-	ls := make([]string, len(*la))
-	for i, l := range *la {
-		ls[i] = l.Name + "=" + l.Value
-	}
-
-	return strings.Join(ls, ", ")
-}
-
-func (la *labelArg) Set(v string) error {
-	labels := strings.Split(v, ",")
-	lset := make([]prompb.Label, len(labels))
-
-	for i, l := range labels {
-		parts := strings.SplitN(l, "=", 2)
-		if len(parts) != 2 {
-			return errors.Errorf("unrecognized label %q", l)
-		}
-
-		if !model.LabelName.IsValid(model.LabelName(parts[0])) {
-			return errors.Errorf("unsupported format for label %s", l)
-		}
-
-		val, err := strconv.Unquote(parts[1])
-		if err != nil {
-			return errors.Wrap(err, "unquote label value")
-		}
-
-		lset[i] = prompb.Label{Name: parts[0], Value: val}
-	}
-
-	*la = lset
-
-	return nil
-}
-
-type tlsOptions struct {
-	Cert   string
-	Key    string
-	CACert string
-}
-
-type options struct {
-	LogLevel          level.Option
-	WriteEndpoint     *url.URL
-	ReadEndpoint      *url.URL
-	Labels            labelArg
-	Listen            string
-	Name              string
-	Token             TokenProvider
-	Queries           []querySpec
-	Period            time.Duration
-	Duration          time.Duration
-	Latency           time.Duration
-	InitialQueryDelay time.Duration
-	SuccessThreshold  float64
-	tls               tlsOptions
+	Queries []options.QuerySpec `yaml:"queries"`
 }
 
 func main() {
@@ -115,7 +49,7 @@ func main() {
 	l = log.WithPrefix(l, "caller", log.DefaultCaller)
 
 	reg := prometheus.NewRegistry()
-	m := registerMetrics(reg)
+	m := util.RegisterMetrics(reg)
 
 	// Error channel to gather failures
 	ch := make(chan error, 2)
@@ -150,12 +84,12 @@ func main() {
 			l := log.With(l, "component", "writer")
 			level.Info(l).Log("msg", "starting the writer")
 
-			return runPeriodically(ctx, opts, m.remoteWriteRequests, l, ch, func(rCtx context.Context) {
-				if err := write(rCtx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l, opts.tls); err != nil {
-					m.remoteWriteRequests.WithLabelValues("error").Inc()
+			return runPeriodically(ctx, opts, m.RemoteWriteRequests, l, ch, func(rCtx context.Context) {
+				if err := metrics.Write(rCtx, opts.WriteEndpoint, opts.Token, metrics.Generate(opts.Labels), l, opts.TLS); err != nil {
+					m.RemoteWriteRequests.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to make request", "err", err)
 				} else {
-					m.remoteWriteRequests.WithLabelValues("success").Inc()
+					m.RemoteWriteRequests.WithLabelValues("success").Inc()
 				}
 			})
 		}, func(_ error) {
@@ -178,12 +112,12 @@ func main() {
 
 			level.Info(l).Log("msg", "start querying for metrics")
 
-			return runPeriodically(ctx, opts, m.queryResponses, l, ch, func(rCtx context.Context) {
-				if err := read(rCtx, opts.ReadEndpoint, opts.Token, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m, l, opts.tls); err != nil {
-					m.queryResponses.WithLabelValues("error").Inc()
+			return runPeriodically(ctx, opts, m.QueryResponses, l, ch, func(rCtx context.Context) {
+				if err := metrics.Read(rCtx, opts.ReadEndpoint, opts.Token, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m, l, opts.TLS); err != nil {
+					m.QueryResponses.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to query", "err", err)
 				} else {
-					m.queryResponses.WithLabelValues("success").Inc()
+					m.QueryResponses.WithLabelValues("success").Inc()
 				}
 			})
 		}, func(_ error) {
@@ -216,7 +150,7 @@ func main() {
 	level.Info(l).Log("msg", "up completed its mission!")
 }
 
-func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opts options, m metrics, cancel func()) {
+func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opts options.Options, m util.Metrics, cancel func()) {
 	g.Add(func() error {
 		l := log.With(l, "component", "query-reader")
 		level.Info(l).Log("msg", "starting the reader for queries")
@@ -242,13 +176,13 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 						return nil
 					default:
 						t := time.Now()
-						warn, err := query(
+						warn, err := metrics.Query(
 							ctx,
 							l,
 							opts.ReadEndpoint,
 							opts.Token,
 							q,
-							opts.tls,
+							opts.TLS,
 						)
 						duration := time.Since(t).Seconds()
 						if err != nil {
@@ -259,16 +193,16 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 								"warnings", fmt.Sprintf("%#+v", warn),
 								"err", err,
 							)
-							m.customQueryErrors.WithLabelValues(q.Name).Inc()
+							m.CustomQueryErrors.WithLabelValues(q.Name).Inc()
 						} else {
 							level.Debug(l).Log("msg", "successfully executed specified query",
 								"name", q.Name,
 								"duration", duration,
 								"warnings", fmt.Sprintf("%#+v", warn),
 							)
-							m.customQueryLastDuration.WithLabelValues(q.Name).Set(duration)
+							m.CustomQueryLastDuration.WithLabelValues(q.Name).Set(duration)
 						}
-						m.customQueryExecuted.WithLabelValues(q.Name).Inc()
+						m.CustomQueryExecuted.WithLabelValues(q.Name).Inc()
 					}
 					time.Sleep(100 * time.Millisecond)
 				}
@@ -280,7 +214,7 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 	})
 }
 
-func runPeriodically(ctx context.Context, opts options, c *prometheus.CounterVec, l log.Logger, ch chan error,
+func runPeriodically(ctx context.Context, opts options.Options, c *prometheus.CounterVec, l log.Logger, ch chan error,
 	f func(rCtx context.Context)) error {
 	var (
 		t        = time.NewTicker(opts.Period)
@@ -358,7 +292,7 @@ func reportResults(l log.Logger, ch chan error, c *prometheus.CounterVec, thresh
 
 // Helpers
 
-func parseFlags(l log.Logger) (options, error) {
+func parseFlags(l log.Logger) (options.Options, error) {
 	var (
 		rawWriteEndpoint string
 		rawReadEndpoint  string
@@ -368,7 +302,7 @@ func parseFlags(l log.Logger) (options, error) {
 		token            string
 	)
 
-	opts := options{}
+	opts := options.Options{}
 
 	flag.StringVar(&rawLogLevel, "log.level", "info", "The log filtering level. Options: 'error', 'warn', 'info', 'debug'.")
 	flag.StringVar(&rawWriteEndpoint, "endpoint-write", "", "The endpoint to which to make remote-write requests.")
@@ -387,11 +321,11 @@ func parseFlags(l log.Logger) (options, error) {
 	flag.Float64Var(&opts.SuccessThreshold, "threshold", 0.9, "The percentage of successful requests needed to succeed overall. 0 - 1.")
 	flag.DurationVar(&opts.Latency, "latency", 15*time.Second, "The maximum allowable latency between writing and reading.")
 	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second, "The time to wait before executing the first query.")
-	flag.StringVar(&opts.tls.Cert, "tls-client-cert-file", "",
+	flag.StringVar(&opts.TLS.Cert, "tls-client-cert-file", "",
 		"File containing the default x509 Certificate for HTTPS. Leave blank to disable TLS.")
-	flag.StringVar(&opts.tls.Key, "tls-client-private-key-file", "",
+	flag.StringVar(&opts.TLS.Key, "tls-client-private-key-file", "",
 		"File containing the default x509 private key matching --tls-cert-file. Leave blank to disable TLS.")
-	flag.StringVar(&opts.tls.CACert, "tls-ca-file", "",
+	flag.StringVar(&opts.TLS.CACert, "tls-ca-file", "",
 		"File containing the TLS CA to use against servers for verification. If no CA is specified, there won't be any verification.")
 	flag.Parse()
 
@@ -400,9 +334,9 @@ func parseFlags(l log.Logger) (options, error) {
 
 func buildOptionsFromFlags(
 	l log.Logger,
-	opts options,
+	opts options.Options,
 	rawLogLevel, rawWriteEndpoint, rawReadEndpoint, queriesFileName, token, tokenFile string,
-) (options, error) {
+) (options.Options, error) {
 	var err error
 
 	switch rawLogLevel {
@@ -483,22 +417,22 @@ func buildOptionsFromFlags(
 	return opts, err
 }
 
-func tokenProvider(token, tokenFile string) TokenProvider {
-	var res TokenProvider
+func tokenProvider(token, tokenFile string) auth.TokenProvider {
+	var res auth.TokenProvider
 
-	res = NewNoOpTokenProvider()
+	res = auth.NewNoOpTokenProvider()
 	if tokenFile != "" {
-		res = NewFileToken(tokenFile)
+		res = auth.NewFileToken(tokenFile)
 	}
 
 	if token != "" {
-		res = NewStaticToken(token)
+		res = auth.NewStaticToken(token)
 	}
 
 	return res
 }
 
-func scheduleHTTPServer(l log.Logger, opts options, reg *prometheus.Registry, g *run.Group) {
+func scheduleHTTPServer(l log.Logger, opts options.Options, reg *prometheus.Registry, g *run.Group) {
 	logger := log.With(l, "component", "http")
 	router := http.NewServeMux()
 	router.Handle("/metrics", promhttp.InstrumentMetricHandler(reg, promhttp.HandlerFor(reg, promhttp.HandlerOpts{})))

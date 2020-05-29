@@ -1,4 +1,4 @@
-package main
+package metrics
 
 import (
 	"context"
@@ -9,6 +9,9 @@ import (
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
+	"github.com/observatorium/up/pkg/auth"
+	"github.com/observatorium/up/pkg/options"
+	"github.com/observatorium/up/pkg/transport"
 	"github.com/pkg/errors"
 	promapi "github.com/prometheus/client_golang/api"
 	promapiv1 "github.com/prometheus/client_golang/api/prometheus/v1"
@@ -18,11 +21,11 @@ import (
 type instantQueryRoundTripper struct {
 	l       log.Logger
 	r       http.RoundTripper
-	t       TokenProvider
+	t       auth.TokenProvider
 	TraceID string
 }
 
-func newInstantQueryRoundTripper(l log.Logger, t TokenProvider, r http.RoundTripper) *instantQueryRoundTripper {
+func newInstantQueryRoundTripper(l log.Logger, t auth.TokenProvider, r http.RoundTripper) *instantQueryRoundTripper {
 	if r == nil {
 		r = http.DefaultTransport
 	}
@@ -54,18 +57,13 @@ func (r *instantQueryRoundTripper) RoundTrip(req *http.Request) (*http.Response,
 	return resp, err
 }
 
-type querySpec struct {
-	Name  string `yaml:"name"`
-	Query string `yaml:"query"`
-}
-
-func query(
+func Query(
 	ctx context.Context,
 	l log.Logger,
 	endpoint *url.URL,
-	t TokenProvider,
-	query querySpec,
-	tls tlsOptions,
+	t auth.TokenProvider,
+	query options.QuerySpec,
+	tls options.TLS,
 ) (promapiv1.Warnings, error) {
 	var (
 		warn promapiv1.Warnings
@@ -80,8 +78,8 @@ func query(
 	*u = *endpoint
 	u.Path = ""
 
-	if u.Scheme == https {
-		tp, err := newTLSTransport(l, tls)
+	if u.Scheme == transport.HTTPS {
+		tp, err := transport.NewTLSTransport(l, tls)
 		if err != nil {
 			return warn, errors.Wrap(err, "create round tripper")
 		}

@@ -1,4 +1,4 @@
-package main
+package util
 
 import (
 	"io"
@@ -11,7 +11,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func exhaustCloseWithLogOnErr(l log.Logger, rc io.ReadCloser) {
+func ExhaustCloseWithLogOnErr(l log.Logger, rc io.ReadCloser) {
 	if _, err := io.Copy(ioutil.Discard, rc); err != nil {
 		level.Warn(l).Log("msg", "failed to exhaust reader, performance may be impeded", "err", err)
 	}
@@ -21,6 +21,6 @@ func exhaustCloseWithLogOnErr(l log.Logger, rc io.ReadCloser) {
 	}
 }
 
-func formatTime(t time.Time) string {
+func FormatTime(t time.Time) string {
 	return strconv.FormatFloat(float64(t.Unix())+float64(t.Nanosecond())/1e9, 'f', -1, 64)
 }

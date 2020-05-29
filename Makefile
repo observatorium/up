@@ -12,7 +12,7 @@ build: up
 
 .PHONY: up
 up:
-	CGO_ENABLED=0 go build -v -ldflags '-w -extldflags '-static''
+	CGO_ENABLED=0 go build -v -ldflags '-w -extldflags '-static'' ./cmd/up
 
 .PHONY: vendor
 vendor: go.mod go.sum

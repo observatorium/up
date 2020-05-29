@@ -1,4 +1,4 @@
-package main
+package metrics
 
 import (
 	"context"
@@ -10,6 +10,10 @@ import (
 	"time"
 
 	"github.com/go-kit/kit/log"
+	"github.com/observatorium/up/pkg/auth"
+	"github.com/observatorium/up/pkg/options"
+	"github.com/observatorium/up/pkg/transport"
+	"github.com/observatorium/up/pkg/util"
 	"github.com/pkg/errors"
 	promapi "github.com/prometheus/client_golang/api"
 	"github.com/prometheus/common/model"
@@ -60,23 +64,23 @@ func (qr *queryResult) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-func read(
+func Read(
 	ctx context.Context,
 	endpoint *url.URL,
-	tp TokenProvider,
+	tp auth.TokenProvider,
 	labels []prompb.Label,
 	ago, latency time.Duration,
-	m metrics,
+	m util.Metrics,
 	l log.Logger,
-	tls tlsOptions,
+	tls options.TLS,
 ) error {
 	var (
 		rt  http.RoundTripper
 		err error
 	)
 
-	if endpoint.Scheme == https {
-		rt, err = newTLSTransport(l, tls)
+	if endpoint.Scheme == transport.HTTPS {
+		rt, err = transport.NewTLSTransport(l, tls)
 		if err != nil {
 			return errors.Wrap(err, "create round tripper")
 		}
@@ -106,7 +110,7 @@ func read(
 
 	ts := time.Now().Add(ago)
 	if !ts.IsZero() {
-		q.Set("time", formatTime(ts))
+		q.Set("time", util.FormatTime(ts))
 	}
 
 	_, body, err := doGetFallback(ctx, client, endpoint, q) //nolint:bodyclose
@@ -128,7 +132,7 @@ func read(
 
 	diffSeconds := time.Since(t).Seconds()
 
-	m.metricValueDifference.Observe(diffSeconds)
+	m.MetricValueDifference.Observe(diffSeconds)
 
 	if diffSeconds > latency.Seconds() {
 		return fmt.Errorf("metric value is too old: %2.fs", diffSeconds)

@@ -1,4 +1,4 @@
-package main
+package transport
 
 import (
 	"crypto/tls"
@@ -9,6 +9,8 @@ import (
 	"github.com/go-kit/kit/log/level"
 	"github.com/pkg/errors"
 )
+
+const HTTPS = "https"
 
 func newTLSConfig(logger log.Logger, certFile, keyFile, caCertFile string) (*tls.Config, error) {
 	var certPool *x509.CertPool

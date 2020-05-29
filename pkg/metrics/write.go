@@ -1,4 +1,4 @@
-package main
+package metrics
 
 import (
 	"bytes"
@@ -10,11 +10,15 @@ import (
 	"github.com/go-kit/kit/log"
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/snappy"
+	"github.com/observatorium/up/pkg/auth"
+	"github.com/observatorium/up/pkg/options"
+	"github.com/observatorium/up/pkg/transport"
+	"github.com/observatorium/up/pkg/util"
 	"github.com/pkg/errors"
 	"github.com/prometheus/prometheus/prompb"
 )
 
-func write(ctx context.Context, endpoint *url.URL, t TokenProvider, wreq proto.Message, l log.Logger, tls tlsOptions) error {
+func Write(ctx context.Context, endpoint *url.URL, t auth.TokenProvider, wreq proto.Message, l log.Logger, tls options.TLS) error {
 	var (
 		buf []byte
 		err error
@@ -23,8 +27,8 @@ func write(ctx context.Context, endpoint *url.URL, t TokenProvider, wreq proto.M
 		rt  http.RoundTripper
 	)
 
-	if endpoint.Scheme == https {
-		rt, err = newTLSTransport(l, tls)
+	if endpoint.Scheme == transport.HTTPS {
+		rt, err = transport.NewTLSTransport(l, tls)
 		if err != nil {
 			return errors.Wrap(err, "create round tripper")
 		}
@@ -58,7 +62,7 @@ func write(ctx context.Context, endpoint *url.URL, t TokenProvider, wreq proto.M
 		return errors.Wrap(err, "making request")
 	}
 
-	defer exhaustCloseWithLogOnErr(l, res.Body)
+	defer util.ExhaustCloseWithLogOnErr(l, res.Body)
 
 	if res.StatusCode != http.StatusOK {
 		err = errors.New(res.Status)
@@ -68,7 +72,7 @@ func write(ctx context.Context, endpoint *url.URL, t TokenProvider, wreq proto.M
 	return nil
 }
 
-func generate(labels []prompb.Label) *prompb.WriteRequest {
+func Generate(labels []prompb.Label) *prompb.WriteRequest {
 	timestamp := time.Now().UnixNano() / int64(time.Millisecond)
 
 	return &prompb.WriteRequest{

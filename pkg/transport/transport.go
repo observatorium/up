@@ -1,4 +1,4 @@
-package main
+package transport
 
 import (
 	"net"
@@ -6,10 +6,11 @@ import (
 	"time"
 
 	"github.com/go-kit/kit/log"
+	"github.com/observatorium/up/pkg/options"
 	"github.com/pkg/errors"
 )
 
-func newTLSTransport(l log.Logger, tls tlsOptions) (*http.Transport, error) {
+func NewTLSTransport(l log.Logger, tls options.TLS) (*http.Transport, error) {
 	tlsConfig, err := newTLSConfig(l, tls.Cert, tls.Key, tls.CACert)
 	if err != nil {
 		return nil, errors.Wrap(err, "tls config")
