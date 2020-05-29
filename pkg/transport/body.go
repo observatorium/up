@@ -1,10 +1,8 @@
-package util
+package transport
 
 import (
 	"io"
 	"io/ioutil"
-	"strconv"
-	"time"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
@@ -19,8 +17,4 @@ func ExhaustCloseWithLogOnErr(l log.Logger, rc io.ReadCloser) {
 	if err := rc.Close(); err != nil {
 		level.Warn(l).Log("msg", "detected close error", "err", errors.Wrap(err, "response body close"))
 	}
-}
-
-func FormatTime(t time.Time) string {
-	return strconv.FormatFloat(float64(t.Unix())+float64(t.Nanosecond())/1e9, 'f', -1, 64)
 }

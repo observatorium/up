@@ -7,17 +7,18 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/go-kit/kit/log"
-	"github.com/gogo/protobuf/proto"
-	"github.com/golang/snappy"
 	"github.com/observatorium/up/pkg/auth"
 	"github.com/observatorium/up/pkg/options"
 	"github.com/observatorium/up/pkg/transport"
-	"github.com/observatorium/up/pkg/util"
+
+	"github.com/go-kit/kit/log"
+	"github.com/gogo/protobuf/proto"
+	"github.com/golang/snappy"
 	"github.com/pkg/errors"
 	"github.com/prometheus/prometheus/prompb"
 )
 
+// Write executes a remote-write against Prometheus sending a set of labels and metrics to store.
 func Write(ctx context.Context, endpoint *url.URL, t auth.TokenProvider, wreq proto.Message, l log.Logger, tls options.TLS) error {
 	var (
 		buf []byte
@@ -62,16 +63,17 @@ func Write(ctx context.Context, endpoint *url.URL, t auth.TokenProvider, wreq pr
 		return errors.Wrap(err, "making request")
 	}
 
-	defer util.ExhaustCloseWithLogOnErr(l, res.Body)
+	defer transport.ExhaustCloseWithLogOnErr(l, res.Body)
 
 	if res.StatusCode != http.StatusOK {
-		err = errors.New(res.Status)
+		err = errors.Errorf(res.Status)
 		return errors.Wrap(err, "non-200 status")
 	}
 
 	return nil
 }
 
+// Generate takes a set of labels and metrics key-value pairs and returns the payload to write metrics to Prometheus.
 func Generate(labels []prompb.Label) *prompb.WriteRequest {
 	timestamp := time.Now().UnixNano() / int64(time.Millisecond)
 

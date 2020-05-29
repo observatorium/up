@@ -6,14 +6,16 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/go-kit/kit/log"
 	"github.com/observatorium/up/pkg/auth"
+	"github.com/observatorium/up/pkg/instr"
 	"github.com/observatorium/up/pkg/options"
 	"github.com/observatorium/up/pkg/transport"
-	"github.com/observatorium/up/pkg/util"
+
+	"github.com/go-kit/kit/log"
 	"github.com/pkg/errors"
 	promapi "github.com/prometheus/client_golang/api"
 	"github.com/prometheus/common/model"
@@ -27,6 +29,7 @@ type queryResult struct {
 	v model.Value
 }
 
+// UnmarshalJSON writes a queryResult instance to a byte sequence supporting scalar, vector and matrics data payloads.
 func (qr *queryResult) UnmarshalJSON(b []byte) error {
 	v := struct {
 		Status string `json:"status"`
@@ -58,19 +61,20 @@ func (qr *queryResult) UnmarshalJSON(b []byte) error {
 		qr.v = mv
 
 	default:
-		err = fmt.Errorf("unexpected value type %q", v.Data.Type)
+		err = errors.Errorf("unexpected value type %q", v.Data.Type)
 	}
 
 	return err
 }
 
+// Read executes query against Prometheus with the same labels to retrieve the written metrics back.
 func Read(
 	ctx context.Context,
 	endpoint *url.URL,
 	tp auth.TokenProvider,
 	labels []prompb.Label,
 	ago, latency time.Duration,
-	m util.Metrics,
+	m instr.Metrics,
 	l log.Logger,
 	tls options.TLS,
 ) error {
@@ -85,9 +89,9 @@ func Read(
 			return errors.Wrap(err, "create round tripper")
 		}
 
-		rt = newInstantQueryRoundTripper(l, tp, rt)
+		rt = auth.NewBearerTokenRoundTripper(l, tp, rt)
 	} else {
-		rt = newInstantQueryRoundTripper(l, tp, nil)
+		rt = auth.NewBearerTokenRoundTripper(l, tp, nil)
 	}
 
 	client, err := promapi.NewClient(promapi.Config{
@@ -110,7 +114,7 @@ func Read(
 
 	ts := time.Now().Add(ago)
 	if !ts.IsZero() {
-		q.Set("time", util.FormatTime(ts))
+		q.Set("time", formatTime(ts))
 	}
 
 	_, body, err := doGetFallback(ctx, client, endpoint, q) //nolint:bodyclose
@@ -125,17 +129,17 @@ func Read(
 
 	vec := result.v.(model.Vector)
 	if len(vec) != 1 {
-		return fmt.Errorf("expected one metric, got %d", len(vec))
+		return errors.Errorf("expected one metric, got %d", len(vec))
 	}
 
-	t := time.Unix(int64(vec[0].Value/1000), 0)
+	t := time.Unix(int64(vec[0].Value/1000), 0) //nolint:mnd
 
 	diffSeconds := time.Since(t).Seconds()
 
 	m.MetricValueDifference.Observe(diffSeconds)
 
 	if diffSeconds > latency.Seconds() {
-		return fmt.Errorf("metric value is too old: %2.fs", diffSeconds)
+		return errors.Errorf("metric value is too old: %2.fs", diffSeconds)
 	}
 
 	return nil
@@ -169,4 +173,8 @@ func doGetFallback(ctx context.Context, c promapi.Client, u *url.URL, args url.V
 	}
 
 	return c.Do(ctx, req)
+}
+
+func formatTime(t time.Time) string {
+	return strconv.FormatFloat(float64(t.Unix())+float64(t.Nanosecond())/1e9, 'f', -1, 64)
 }

@@ -11,6 +11,7 @@ steps:
   pull: always
   image: golang:1.13
   commands:
+  - apt-get update && apt-get install unzip
   - go test -v -race ./...
   - make test-integration
   environment:

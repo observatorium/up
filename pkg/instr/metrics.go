@@ -1,4 +1,4 @@
-package util
+package instr
 
 import "github.com/prometheus/client_golang/prometheus"
 
@@ -24,7 +24,7 @@ func RegisterMetrics(reg *prometheus.Registry) Metrics {
 		MetricValueDifference: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "up_metric_value_difference",
 			Help:    "The time difference between the current timestamp and the timestamp in the metrics value.",
-			Buckets: prometheus.LinearBuckets(4, 0.25, 16),
+			Buckets: prometheus.LinearBuckets(4, 0.25, 16), //nolint:gomnd
 		}),
 		CustomQueryExecuted: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "up_custom_query_executed_total",
