@@ -11,6 +11,7 @@ steps:
   pull: always
   image: golang:1.13
   commands:
+  - apt-get update && apt-get install unzip
   - go test -v -race ./...
   - make test-integration
   environment:
@@ -29,7 +30,7 @@ steps:
   pull: always
   image: golang:1.13
   commands:
-  - go build -v
+  - go build -v ./cmd/up
   environment:
     CGO_ENABLED: 0
     GO111MODULE: on

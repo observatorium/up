@@ -11,93 +11,35 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
+
+	"github.com/observatorium/up/pkg/auth"
+	"github.com/observatorium/up/pkg/instr"
+	"github.com/observatorium/up/pkg/logs"
+	"github.com/observatorium/up/pkg/metrics"
+	"github.com/observatorium/up/pkg/options"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 	"github.com/oklog/run"
 	"github.com/pkg/errors"
+	promapiv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	dto "github.com/prometheus/client_model/go"
-	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/promql/parser"
 	"gopkg.in/yaml.v2"
 )
 
-const https = "https"
-
-type TokenProvider interface {
-	Get() (string, error)
-}
+const (
+	numOfEndpoints        = 2
+	timeoutBetweenQueries = 100 * time.Millisecond
+)
 
 type queriesFile struct {
-	Queries []querySpec `yaml:"queries"`
-}
-
-type labelArg []prompb.Label
-
-func (la *labelArg) String() string {
-	ls := make([]string, len(*la))
-	for i, l := range *la {
-		ls[i] = l.Name + "=" + l.Value
-	}
-
-	return strings.Join(ls, ", ")
-}
-
-func (la *labelArg) Set(v string) error {
-	labels := strings.Split(v, ",")
-	lset := make([]prompb.Label, len(labels))
-
-	for i, l := range labels {
-		parts := strings.SplitN(l, "=", 2)
-		if len(parts) != 2 {
-			return errors.Errorf("unrecognized label %q", l)
-		}
-
-		if !model.LabelName.IsValid(model.LabelName(parts[0])) {
-			return errors.Errorf("unsupported format for label %s", l)
-		}
-
-		val, err := strconv.Unquote(parts[1])
-		if err != nil {
-			return errors.Wrap(err, "unquote label value")
-		}
-
-		lset[i] = prompb.Label{Name: parts[0], Value: val}
-	}
-
-	*la = lset
-
-	return nil
-}
-
-type tlsOptions struct {
-	Cert   string
-	Key    string
-	CACert string
-}
-
-type options struct {
-	LogLevel          level.Option
-	WriteEndpoint     *url.URL
-	ReadEndpoint      *url.URL
-	Labels            labelArg
-	Listen            string
-	Name              string
-	Token             TokenProvider
-	Queries           []querySpec
-	Period            time.Duration
-	Duration          time.Duration
-	Latency           time.Duration
-	InitialQueryDelay time.Duration
-	SuccessThreshold  float64
-	tls               tlsOptions
+	Queries []options.QuerySpec `yaml:"queries"`
 }
 
 func main() {
@@ -115,10 +57,10 @@ func main() {
 	l = log.WithPrefix(l, "caller", log.DefaultCaller)
 
 	reg := prometheus.NewRegistry()
-	m := registerMetrics(reg)
+	m := instr.RegisterMetrics(reg)
 
 	// Error channel to gather failures
-	ch := make(chan error, 2)
+	ch := make(chan error, numOfEndpoints)
 
 	g := &run.Group{}
 	{
@@ -150,12 +92,12 @@ func main() {
 			l := log.With(l, "component", "writer")
 			level.Info(l).Log("msg", "starting the writer")
 
-			return runPeriodically(ctx, opts, m.remoteWriteRequests, l, ch, func(rCtx context.Context) {
-				if err := write(rCtx, opts.WriteEndpoint, opts.Token, generate(opts.Labels), l, opts.tls); err != nil {
-					m.remoteWriteRequests.WithLabelValues("error").Inc()
+			return runPeriodically(ctx, opts, m.RemoteWriteRequests, l, ch, func(rCtx context.Context) {
+				if err := write(rCtx, l, opts); err != nil {
+					m.RemoteWriteRequests.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to make request", "err", err)
 				} else {
-					m.remoteWriteRequests.WithLabelValues("success").Inc()
+					m.RemoteWriteRequests.WithLabelValues("success").Inc()
 				}
 			})
 		}, func(_ error) {
@@ -169,21 +111,21 @@ func main() {
 			level.Info(l).Log("msg", "starting the reader")
 
 			// Wait for at least one period before start reading metrics.
-			level.Info(l).Log("msg", "waiting for initial delay before querying for metrics")
+			level.Info(l).Log("msg", "waiting for initial delay before querying", "type", opts.EndpointType)
 			select {
 			case <-ctx.Done():
 				return nil
 			case <-time.After(opts.InitialQueryDelay):
 			}
 
-			level.Info(l).Log("msg", "start querying for metrics")
+			level.Info(l).Log("msg", "start querying", "type", opts.EndpointType)
 
-			return runPeriodically(ctx, opts, m.queryResponses, l, ch, func(rCtx context.Context) {
-				if err := read(rCtx, opts.ReadEndpoint, opts.Token, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m, l, opts.tls); err != nil {
-					m.queryResponses.WithLabelValues("error").Inc()
+			return runPeriodically(ctx, opts, m.QueryResponses, l, ch, func(rCtx context.Context) {
+				if err := read(rCtx, l, m, opts); err != nil {
+					m.QueryResponses.WithLabelValues("error").Inc()
 					level.Error(l).Log("msg", "failed to query", "err", err)
 				} else {
-					m.queryResponses.WithLabelValues("success").Inc()
+					m.QueryResponses.WithLabelValues("success").Inc()
 				}
 			})
 		}, func(_ error) {
@@ -216,7 +158,40 @@ func main() {
 	level.Info(l).Log("msg", "up completed its mission!")
 }
 
-func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opts options, m metrics, cancel func()) {
+func write(ctx context.Context, l log.Logger, opts options.Options) error {
+	switch opts.EndpointType {
+	case options.MetricsEndpointType:
+		return metrics.Write(ctx, opts.WriteEndpoint, opts.Token, metrics.Generate(opts.Labels), l, opts.TLS)
+	case options.LogsEndpointType:
+		return logs.Write(ctx, opts.WriteEndpoint, opts.Token, logs.Generate(opts.Labels, opts.Logs), l, opts.TLS)
+	}
+
+	return nil
+}
+
+func read(ctx context.Context, l log.Logger, m instr.Metrics, opts options.Options) error {
+	switch opts.EndpointType {
+	case options.MetricsEndpointType:
+		return metrics.Read(ctx, opts.ReadEndpoint, opts.Token, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m, l, opts.TLS)
+	case options.LogsEndpointType:
+		return logs.Read(ctx, opts.ReadEndpoint, opts.Token, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m, l, opts.TLS)
+	}
+
+	return nil
+}
+
+func query(ctx context.Context, l log.Logger, q options.QuerySpec, opts options.Options) (promapiv1.Warnings, error) {
+	switch opts.EndpointType {
+	case options.MetricsEndpointType:
+		return metrics.Query(ctx, l, opts.ReadEndpoint, opts.Token, q, opts.TLS)
+	case options.LogsEndpointType:
+		return nil, errors.Errorf("not implemented for logs")
+	}
+
+	return nil, nil
+}
+
+func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opts options.Options, m instr.Metrics, cancel func()) {
 	g.Add(func() error {
 		l := log.With(l, "component", "query-reader")
 		level.Info(l).Log("msg", "starting the reader for queries")
@@ -242,14 +217,7 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 						return nil
 					default:
 						t := time.Now()
-						warn, err := query(
-							ctx,
-							l,
-							opts.ReadEndpoint,
-							opts.Token,
-							q,
-							opts.tls,
-						)
+						warn, err := query(ctx, l, q, opts)
 						duration := time.Since(t).Seconds()
 						if err != nil {
 							level.Info(l).Log(
@@ -259,20 +227,20 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 								"warnings", fmt.Sprintf("%#+v", warn),
 								"err", err,
 							)
-							m.customQueryErrors.WithLabelValues(q.Name).Inc()
+							m.CustomQueryErrors.WithLabelValues(q.Name).Inc()
 						} else {
 							level.Debug(l).Log("msg", "successfully executed specified query",
 								"name", q.Name,
 								"duration", duration,
 								"warnings", fmt.Sprintf("%#+v", warn),
 							)
-							m.customQueryLastDuration.WithLabelValues(q.Name).Set(duration)
+							m.CustomQueryLastDuration.WithLabelValues(q.Name).Set(duration)
 						}
-						m.customQueryExecuted.WithLabelValues(q.Name).Inc()
+						m.CustomQueryExecuted.WithLabelValues(q.Name).Inc()
 					}
-					time.Sleep(100 * time.Millisecond)
+					time.Sleep(timeoutBetweenQueries)
 				}
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(timeoutBetweenQueries)
 			}
 		}
 	}, func(_ error) {
@@ -280,7 +248,7 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 	})
 }
 
-func runPeriodically(ctx context.Context, opts options, c *prometheus.CounterVec, l log.Logger, ch chan error,
+func runPeriodically(ctx context.Context, opts options.Options, c *prometheus.CounterVec, l log.Logger, ch chan error,
 	f func(rCtx context.Context)) error {
 	var (
 		t        = time.NewTicker(opts.Period)
@@ -319,11 +287,11 @@ func runPeriodically(ctx context.Context, opts options, c *prometheus.CounterVec
 }
 
 func reportResults(l log.Logger, ch chan error, c *prometheus.CounterVec, threshold float64) error {
-	metrics := make(chan prometheus.Metric, 2)
+	metrics := make(chan prometheus.Metric, numOfEndpoints)
 	c.Collect(metrics)
 	close(metrics)
 
-	var success, errors float64
+	var success, failures float64
 
 	for m := range metrics {
 		m1 := &dto.Metric{}
@@ -334,20 +302,20 @@ func reportResults(l log.Logger, ch chan error, c *prometheus.CounterVec, thresh
 		for _, l := range m1.Label {
 			switch *l.Value {
 			case "error":
-				errors = m1.GetCounter().GetValue()
+				failures = m1.GetCounter().GetValue()
 			case "success":
 				success = m1.GetCounter().GetValue()
 			}
 		}
 	}
 
-	level.Info(l).Log("msg", "number of requests", "success", success, "errors", errors)
+	level.Info(l).Log("msg", "number of requests", "success", success, "errors", failures)
 
-	ratio := success / (success + errors)
+	ratio := success / (success + failures)
 	if ratio < threshold {
 		level.Error(l).Log("msg", "ratio is below threshold")
 
-		err := fmt.Errorf("failed with less than %2.f%% success ratio - actual %2.f%%", threshold*100, ratio*100)
+		err := errors.Errorf("failed with less than %2.f%% success ratio - actual %2.f%%", threshold*100, ratio*100) //nolint:gomnd
 		ch <- err
 
 		return err
@@ -358,8 +326,9 @@ func reportResults(l log.Logger, ch chan error, c *prometheus.CounterVec, thresh
 
 // Helpers
 
-func parseFlags(l log.Logger) (options, error) {
+func parseFlags(l log.Logger) (options.Options, error) {
 	var (
+		rawEndpointType  string
 		rawWriteEndpoint string
 		rawReadEndpoint  string
 		rawLogLevel      string
@@ -368,109 +337,74 @@ func parseFlags(l log.Logger) (options, error) {
 		token            string
 	)
 
-	opts := options{}
+	opts := options.Options{}
 
 	flag.StringVar(&rawLogLevel, "log.level", "info", "The log filtering level. Options: 'error', 'warn', 'info', 'debug'.")
+	flag.StringVar(&rawEndpointType, "endpoint-type", "", "The endpoint type. Options: 'logs', 'metrics'.")
 	flag.StringVar(&rawWriteEndpoint, "endpoint-write", "", "The endpoint to which to make remote-write requests.")
 	flag.StringVar(&rawReadEndpoint, "endpoint-read", "", "The endpoint to which to make query requests.")
 	flag.Var(&opts.Labels, "labels", "The labels in addition to '__name__' that should be applied to remote-write requests.")
 	flag.StringVar(&opts.Listen, "listen", ":8080", "The address on which internal server runs.")
+	flag.Var(&opts.Logs, "logs", "The logs that should be sent to remote-write requests.")
 	flag.StringVar(&opts.Name, "name", "up", "The name of the metric to send in remote-write requests.")
 	flag.StringVar(&token, "token", "",
 		"The bearer token to set in the authorization header on requests. Takes predence over --token-file if set.")
 	flag.StringVar(&tokenFile, "token-file", "",
 		"The file from which to read a bearer token to set in the authorization header on requests.")
 	flag.StringVar(&queriesFileName, "queries-file", "", "A file containing queries to run against the read endpoint.")
-	flag.DurationVar(&opts.Period, "period", 5*time.Second, "The time to wait between remote-write requests.")
-	flag.DurationVar(&opts.Duration, "duration", 5*time.Minute,
+	flag.DurationVar(&opts.Period, "period", 5*time.Second, "The time to wait between remote-write requests.") //nolint:gomnd
+	flag.DurationVar(&opts.Duration, "duration", 5*time.Minute,                                                //nolint:gomnd
 		"The duration of the up command to run until it stops. If 0 it will not stop until the process is terminated.")
 	flag.Float64Var(&opts.SuccessThreshold, "threshold", 0.9, "The percentage of successful requests needed to succeed overall. 0 - 1.")
-	flag.DurationVar(&opts.Latency, "latency", 15*time.Second, "The maximum allowable latency between writing and reading.")
-	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second, "The time to wait before executing the first query.")
-	flag.StringVar(&opts.tls.Cert, "tls-client-cert-file", "",
+	flag.DurationVar(&opts.Latency, "latency", 15*time.Second, //nolint:gomnd
+		"The maximum allowable latency between writing and reading.")
+	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second, //nolint:gomnd
+		"The time to wait before executing the first query.")
+	flag.StringVar(&opts.TLS.Cert, "tls-client-cert-file", "",
 		"File containing the default x509 Certificate for HTTPS. Leave blank to disable TLS.")
-	flag.StringVar(&opts.tls.Key, "tls-client-private-key-file", "",
+	flag.StringVar(&opts.TLS.Key, "tls-client-private-key-file", "",
 		"File containing the default x509 private key matching --tls-cert-file. Leave blank to disable TLS.")
-	flag.StringVar(&opts.tls.CACert, "tls-ca-file", "",
+	flag.StringVar(&opts.TLS.CACert, "tls-ca-file", "",
 		"File containing the TLS CA to use against servers for verification. If no CA is specified, there won't be any verification.")
 	flag.Parse()
 
-	return buildOptionsFromFlags(l, opts, rawLogLevel, rawWriteEndpoint, rawReadEndpoint, queriesFileName, token, tokenFile)
+	return buildOptionsFromFlags(l, opts, rawLogLevel, rawEndpointType, rawWriteEndpoint, rawReadEndpoint, queriesFileName, token, tokenFile)
 }
 
 func buildOptionsFromFlags(
 	l log.Logger,
-	opts options,
-	rawLogLevel, rawWriteEndpoint, rawReadEndpoint, queriesFileName, token, tokenFile string,
-) (options, error) {
+	opts options.Options,
+	rawLogLevel, rawEndpointType, rawWriteEndpoint, rawReadEndpoint, queriesFileName, token, tokenFile string,
+) (options.Options, error) {
 	var err error
 
-	switch rawLogLevel {
-	case "error":
-		opts.LogLevel = level.AllowError()
-	case "warn":
-		opts.LogLevel = level.AllowWarn()
-	case "info":
-		opts.LogLevel = level.AllowInfo()
-	case "debug":
-		opts.LogLevel = level.AllowDebug()
-	default:
-		panic("unexpected log level")
+	err = parseLogLevel(&opts, rawLogLevel)
+	if err != nil {
+		return opts, errors.Wrap(err, "parsing log level")
 	}
 
-	if rawWriteEndpoint != "" {
-		writeEndpoint, err := url.ParseRequestURI(rawWriteEndpoint)
-		if err != nil {
-			return opts, fmt.Errorf("--endpoint-write is invalid: %w", err)
-		}
-
-		opts.WriteEndpoint = writeEndpoint
-	} else {
-		l.Log("msg", "no write endpoint specified, no write tests being performed")
+	err = parseEndpointType(&opts, rawEndpointType)
+	if err != nil {
+		return opts, errors.Wrap(err, "parsing endpoint type")
 	}
 
-	if rawReadEndpoint != "" {
-		var readEndpoint *url.URL
-		if rawReadEndpoint != "" {
-			readEndpoint, err = url.ParseRequestURI(rawReadEndpoint)
-			if err != nil {
-				return opts, fmt.Errorf("--endpoint-read is invalid: %w", err)
-			}
-		}
-
-		opts.ReadEndpoint = readEndpoint
-	} else {
-		l.Log("msg", "no read endpoint specified, no read tests being performed")
+	err = parseWriteEndpoint(&opts, l, rawWriteEndpoint)
+	if err != nil {
+		return opts, errors.Wrap(err, "parsing write endpoint")
 	}
 
-	if queriesFileName != "" {
-		b, err := ioutil.ReadFile(queriesFileName)
-		if err != nil {
-			return opts, fmt.Errorf("--queries-file is invalid: %w", err)
-		}
+	err = parseReadEndpoint(&opts, l, rawReadEndpoint)
+	if err != nil {
+		return opts, errors.Wrap(err, "parsing read endpoint")
+	}
 
-		qf := queriesFile{}
-		err = yaml.Unmarshal(b, &qf)
-
-		if err != nil {
-			return opts, fmt.Errorf("--queries-file content is invalid: %w", err)
-		}
-
-		l.Log("msg", fmt.Sprintf("%d queries configured to be queried periodically", len(qf.Queries)))
-
-		// validate queries
-		for _, q := range qf.Queries {
-			_, err = parser.ParseExpr(q.Query)
-			if err != nil {
-				return opts, fmt.Errorf("query %q in --queries-file content is invalid: %w", q.Name, err)
-			}
-		}
-
-		opts.Queries = qf.Queries
+	err = parseQueriesFileName(&opts, l, queriesFileName)
+	if err != nil {
+		return opts, errors.Wrap(err, "parsing queries file name")
 	}
 
 	if opts.Latency <= opts.Period {
-		return opts, errors.New("--latency cannot be less than period")
+		return opts, errors.Errorf("--latency cannot be less than period")
 	}
 
 	opts.Labels = append(opts.Labels, prompb.Label{
@@ -483,22 +417,112 @@ func buildOptionsFromFlags(
 	return opts, err
 }
 
-func tokenProvider(token, tokenFile string) TokenProvider {
-	var res TokenProvider
+func parseLogLevel(opts *options.Options, rawLogLevel string) error {
+	switch rawLogLevel {
+	case "error":
+		opts.LogLevel = level.AllowError()
+	case "warn":
+		opts.LogLevel = level.AllowWarn()
+	case "info":
+		opts.LogLevel = level.AllowInfo()
+	case "debug":
+		opts.LogLevel = level.AllowDebug()
+	default:
+		return errors.Errorf("unexpected log level")
+	}
 
-	res = NewNoOpTokenProvider()
+	return nil
+}
+
+func parseEndpointType(opts *options.Options, rawEndpointType string) error {
+	switch options.EndpointType(rawEndpointType) {
+	case options.LogsEndpointType:
+		opts.EndpointType = options.LogsEndpointType
+	case options.MetricsEndpointType:
+		opts.EndpointType = options.MetricsEndpointType
+	default:
+		return errors.Errorf("unexpected endpoint type")
+	}
+
+	return nil
+}
+
+func parseWriteEndpoint(opts *options.Options, l log.Logger, rawWriteEndpoint string) error {
+	if rawWriteEndpoint != "" {
+		writeEndpoint, err := url.ParseRequestURI(rawWriteEndpoint)
+		if err != nil {
+			return fmt.Errorf("--endpoint-write is invalid: %w", err)
+		}
+
+		opts.WriteEndpoint = writeEndpoint
+	} else {
+		l.Log("msg", "no write endpoint specified, no write tests being performed")
+	}
+
+	return nil
+}
+
+func parseReadEndpoint(opts *options.Options, l log.Logger, rawReadEndpoint string) error {
+	if rawReadEndpoint != "" {
+		readEndpoint, err := url.ParseRequestURI(rawReadEndpoint)
+		if err != nil {
+			return fmt.Errorf("--endpoint-read is invalid: %w", err)
+		}
+
+		opts.ReadEndpoint = readEndpoint
+	} else {
+		l.Log("msg", "no read endpoint specified, no read tests being performed")
+	}
+
+	return nil
+}
+
+func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName string) error {
+	if queriesFileName != "" {
+		b, err := ioutil.ReadFile(queriesFileName)
+		if err != nil {
+			return fmt.Errorf("--queries-file is invalid: %w", err)
+		}
+
+		qf := queriesFile{}
+		err = yaml.Unmarshal(b, &qf)
+
+		if err != nil {
+			return fmt.Errorf("--queries-file content is invalid: %w", err)
+		}
+
+		l.Log("msg", fmt.Sprintf("%d queries configured to be queried periodically", len(qf.Queries)))
+
+		// validate queries
+		for _, q := range qf.Queries {
+			_, err = parser.ParseExpr(q.Query)
+			if err != nil {
+				return fmt.Errorf("query %q in --queries-file content is invalid: %w", q.Name, err)
+			}
+		}
+
+		opts.Queries = qf.Queries
+	}
+
+	return nil
+}
+
+func tokenProvider(token, tokenFile string) auth.TokenProvider {
+	var res auth.TokenProvider
+
+	res = auth.NewNoOpTokenProvider()
 	if tokenFile != "" {
-		res = NewFileToken(tokenFile)
+		res = auth.NewFileToken(tokenFile)
 	}
 
 	if token != "" {
-		res = NewStaticToken(token)
+		res = auth.NewStaticToken(token)
 	}
 
 	return res
 }
 
-func scheduleHTTPServer(l log.Logger, opts options, reg *prometheus.Registry, g *run.Group) {
+func scheduleHTTPServer(l log.Logger, opts options.Options, reg *prometheus.Registry, g *run.Group) {
 	logger := log.With(l, "component", "http")
 	router := http.NewServeMux()
 	router.Handle("/metrics", promhttp.InstrumentMetricHandler(reg, promhttp.HandlerFor(reg, promhttp.HandlerOpts{})))
@@ -510,7 +534,7 @@ func scheduleHTTPServer(l log.Logger, opts options, reg *prometheus.Registry, g 
 		level.Info(logger).Log("msg", "starting the HTTP server", "address", opts.Listen)
 		return srv.ListenAndServe()
 	}, func(err error) {
-		if err == http.ErrServerClosed {
+		if errors.Is(err, http.ErrServerClosed) {
 			level.Warn(logger).Log("msg", "internal server closed unexpectedly")
 			return
 		}

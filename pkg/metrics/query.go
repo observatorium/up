@@ -1,11 +1,14 @@
-package main
+package metrics
 
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/observatorium/up/pkg/auth"
+	"github.com/observatorium/up/pkg/options"
+	"github.com/observatorium/up/pkg/transport"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
@@ -15,62 +18,19 @@ import (
 	"github.com/prometheus/common/model"
 )
 
-type instantQueryRoundTripper struct {
-	l       log.Logger
-	r       http.RoundTripper
-	t       TokenProvider
-	TraceID string
-}
-
-func newInstantQueryRoundTripper(l log.Logger, t TokenProvider, r http.RoundTripper) *instantQueryRoundTripper {
-	if r == nil {
-		r = http.DefaultTransport
-	}
-
-	return &instantQueryRoundTripper{
-		l: l,
-		t: t,
-		r: r,
-	}
-}
-
-func (r *instantQueryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	token, err := r.t.Get()
-	if err != nil {
-		return nil, err
-	}
-
-	if token != "" {
-		req.Header.Add("Authorization", "Bearer "+token)
-	}
-
-	resp, err := r.r.RoundTrip(req)
-	if err != nil {
-		return resp, err
-	}
-
-	r.TraceID = resp.Header.Get("X-Thanos-Trace-Id")
-
-	return resp, err
-}
-
-type querySpec struct {
-	Name  string `yaml:"name"`
-	Query string `yaml:"query"`
-}
-
-func query(
+// Query executes a query specification, a set of queries, against Prometheus.
+func Query(
 	ctx context.Context,
 	l log.Logger,
 	endpoint *url.URL,
-	t TokenProvider,
-	query querySpec,
-	tls tlsOptions,
+	t auth.TokenProvider,
+	query options.QuerySpec,
+	tls options.TLS,
 ) (promapiv1.Warnings, error) {
 	var (
 		warn promapiv1.Warnings
 		err  error
-		rt   *instantQueryRoundTripper
+		rt   *auth.BearerTokenRoundTripper
 	)
 
 	level.Debug(l).Log("msg", "running specified query", "name", query.Name, "query", query.Query)
@@ -80,15 +40,15 @@ func query(
 	*u = *endpoint
 	u.Path = ""
 
-	if u.Scheme == https {
-		tp, err := newTLSTransport(l, tls)
+	if u.Scheme == transport.HTTPS {
+		tp, err := transport.NewTLSTransport(l, tls)
 		if err != nil {
 			return warn, errors.Wrap(err, "create round tripper")
 		}
 
-		rt = newInstantQueryRoundTripper(l, t, tp)
+		rt = auth.NewBearerTokenRoundTripper(l, t, tp)
 	} else {
-		rt = newInstantQueryRoundTripper(l, t, nil)
+		rt = auth.NewBearerTokenRoundTripper(l, t, nil)
 	}
 
 	c, err := promapi.NewClient(promapi.Config{

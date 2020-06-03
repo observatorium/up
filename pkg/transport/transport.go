@@ -1,4 +1,4 @@
-package main
+package transport
 
 import (
 	"net"
@@ -6,10 +6,11 @@ import (
 	"time"
 
 	"github.com/go-kit/kit/log"
+	"github.com/observatorium/up/pkg/options"
 	"github.com/pkg/errors"
 )
 
-func newTLSTransport(l log.Logger, tls tlsOptions) (*http.Transport, error) {
+func NewTLSTransport(l log.Logger, tls options.TLS) (*http.Transport, error) {
 	tlsConfig, err := newTLSConfig(l, tls.Cert, tls.Key, tls.CACert)
 	if err != nil {
 		return nil, errors.Wrap(err, "tls config")
@@ -18,14 +19,14 @@ func newTLSTransport(l log.Logger, tls tlsOptions) (*http.Transport, error) {
 	return &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
+			Timeout:   30 * time.Second, //nolint:gomnd
+			KeepAlive: 30 * time.Second, //nolint:gomnd
 			DualStack: true,
 		}).DialContext,
 		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
+		MaxIdleConns:          100,              //nolint:gomnd
+		IdleConnTimeout:       90 * time.Second, //nolint:gomnd
+		TLSHandshakeTimeout:   10 * time.Second, //nolint:gomnd
 		ExpectContinueTimeout: 1 * time.Second,
 		TLSClientConfig:       tlsConfig,
 	}, nil

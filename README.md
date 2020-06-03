@@ -1,8 +1,15 @@
 # UP
 
-UP is a simple client for testing Prometheus remote-write requests.
-The client writes the specified metric at a chosen interval, where the value of the metric is always the current timestamp in milliseconds.
+UP is a simple client for testing Prometheus remote-write and Loki write requests.
+
+For a specified metric the client writes the metric at a chosen interval, where the value of the metric is always the current timestamp in milliseconds. 
+
 It can also read the metric back from a specified endpoint and compare its value against the current time to determine the total write-read latency.
+
+For a specified log entry the client writes the log entry at a chosen interval for the value given. 
+
+It can also read the log back from a specified endpoint and compare the number of results.
+
 When the given duration is greater than 0s, UP will evaluate number of errors and will exit with a non-zero code if the ratio is greater than the specified threshold.
 
 [![Build Status](https://cloud.drone.io/api/badges/observatorium/up/status.svg)](https://cloud.drone.io/observatorium/up)
@@ -32,6 +39,8 @@ Usage of ./up:
     	The duration of the up command to run until it stops. If 0 it will not stop until the process is terminated. (default 5m0s)
   -endpoint-read string
     	The endpoint to which to make query requests.
+  -endpoint-type string
+    	The endpoint type. Options: 'logs', 'metrics'.
   -endpoint-write string
     	The endpoint to which to make remote-write requests.
   -initial-query-delay duration
@@ -44,6 +53,8 @@ Usage of ./up:
     	The address on which internal server runs. (default ":8080")
   -log.level string
     	The log filtering level. Options: 'error', 'warn', 'info', 'debug'. (default "info")
+  -logs value
+    	The logs that should be sent to remote-write requests.
   -name string
     	The name of the metric to send in remote-write requests. (default "up")
   -period duration

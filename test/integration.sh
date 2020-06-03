@@ -25,11 +25,19 @@ trap 'kill $(jobs -p); exit $result' EXIT
     --log.level=debug
 ) &
 
+(
+  ./tmp/bin/loki \
+    -log.level=debug \
+    -target=all \
+    -config.file=./test/config/loki.yml
+) &
+
 echo "## waiting for dependencies to come up..."
-sleep 5
+sleep 10
 
 if ./up \
   --listen=0.0.0.0:8888 \
+  --endpoint-type=metrics \
   --endpoint-read=http://127.0.0.1:9091/api/v1/query \
   --endpoint-write=http://127.0.0.1:19291/api/v1/receive \
   --period=500ms \
@@ -41,10 +49,34 @@ if ./up \
   --name=up_test \
   --labels='foo="bar"'; then
   result=0
-  echo "## tests: ok"
-  exit 0
+  echo "## metrics tests: ok"
+else
+  result=1
+  printf "## metrics tests: failed\n\n"
+  exit 1
 fi
 
-echo "## tests: failed" 1>&2
-result=1
-exit 1
+if ./up \
+  --listen=0.0.0.0:8888 \
+  --endpoint-type=logs \
+  --endpoint-read=http://127.0.0.1:3100/loki/api/v1/query \
+  --endpoint-write=http://127.0.0.1:3100/loki/api/v1/push \
+  --period=500ms \
+  --initial-query-delay=250ms \
+  --threshold=1 \
+  --latency=10s \
+  --duration=10s \
+  --log.level=debug \
+  --name=up_test \
+  --labels='foo="bar"'\
+  --logs="[\"$(date '+%s%N')\",\"log line 1\"]"; then
+  result=0
+  echo "## logs tests: ok"
+else
+  result=1
+  printf "## logs tests: failed\n\n"
+  exit 1
+fi
+
+printf "\t## all tests: ok\n\n" 1>&2
+exit 0
