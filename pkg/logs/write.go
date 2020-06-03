@@ -44,7 +44,7 @@ func Write(ctx context.Context, endpoint *url.URL, t auth.TokenProvider, wreq *P
 		return errors.Wrap(err, "marshalling payload")
 	}
 
-	req, err = http.NewRequest("POST", endpoint.String(), bytes.NewBuffer(buf))
+	req, err = http.NewRequest(http.MethodPost, endpoint.String(), bytes.NewBuffer(buf))
 	if err != nil {
 		return errors.Wrap(err, "creating request")
 	}
