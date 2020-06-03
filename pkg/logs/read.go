@@ -60,7 +60,7 @@ func Read(
 	params.Add("query", query)
 	endpoint.RawQuery = params.Encode()
 
-	req, err := http.NewRequest("Get", endpoint.String(), nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
 	if err != nil {
 		return errors.Wrap(err, "creating request")
 	}
