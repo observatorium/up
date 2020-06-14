@@ -45,6 +45,10 @@ const (
 	MetricsEndpointType EndpointType = "metrics"
 )
 
+type LogsSpec struct {
+	Logs logs `yaml:"logs"`
+}
+
 type QuerySpec struct {
 	Name  string `yaml:"name"`
 	Query string `yaml:"query"`
