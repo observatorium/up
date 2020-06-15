@@ -42,6 +42,10 @@ type queriesFile struct {
 	Queries []options.QuerySpec `yaml:"queries"`
 }
 
+type logsFile struct {
+	Spec options.LogsSpec `yaml:"spec"`
+}
+
 func main() {
 	l := log.WithPrefix(log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr)), "name", "up")
 	l = log.WithPrefix(l, "ts", log.DefaultTimestampUTC)
@@ -333,6 +337,7 @@ func parseFlags(l log.Logger) (options.Options, error) {
 		rawReadEndpoint  string
 		rawLogLevel      string
 		queriesFileName  string
+		logsFileName     string
 		tokenFile        string
 		token            string
 	)
@@ -346,6 +351,7 @@ func parseFlags(l log.Logger) (options.Options, error) {
 	flag.Var(&opts.Labels, "labels", "The labels in addition to '__name__' that should be applied to remote-write requests.")
 	flag.StringVar(&opts.Listen, "listen", ":8080", "The address on which internal server runs.")
 	flag.Var(&opts.Logs, "logs", "The logs that should be sent to remote-write requests.")
+	flag.StringVar(&logsFileName, "logs-file", "", "A file containing logs to send against the logs write endpoint.")
 	flag.StringVar(&opts.Name, "name", "up", "The name of the metric to send in remote-write requests.")
 	flag.StringVar(&token, "token", "",
 		"The bearer token to set in the authorization header on requests. Takes predence over --token-file if set.")
@@ -368,13 +374,15 @@ func parseFlags(l log.Logger) (options.Options, error) {
 		"File containing the TLS CA to use against servers for verification. If no CA is specified, there won't be any verification.")
 	flag.Parse()
 
-	return buildOptionsFromFlags(l, opts, rawLogLevel, rawEndpointType, rawWriteEndpoint, rawReadEndpoint, queriesFileName, token, tokenFile)
+	return buildOptionsFromFlags(
+		l, opts, rawLogLevel, rawEndpointType, rawWriteEndpoint, rawReadEndpoint, queriesFileName, logsFileName, token, tokenFile,
+	)
 }
 
 func buildOptionsFromFlags(
 	l log.Logger,
 	opts options.Options,
-	rawLogLevel, rawEndpointType, rawWriteEndpoint, rawReadEndpoint, queriesFileName, token, tokenFile string,
+	rawLogLevel, rawEndpointType, rawWriteEndpoint, rawReadEndpoint, queriesFileName, logsFileName, token, tokenFile string,
 ) (options.Options, error) {
 	var err error
 
@@ -401,6 +409,11 @@ func buildOptionsFromFlags(
 	err = parseQueriesFileName(&opts, l, queriesFileName)
 	if err != nil {
 		return opts, errors.Wrap(err, "parsing queries file name")
+	}
+
+	err = parseLogsFileName(&opts, l, logsFileName)
+	if err != nil {
+		return opts, errors.Wrap(err, "parsing logs file name")
 	}
 
 	if opts.Latency <= opts.Period {
@@ -502,6 +515,28 @@ func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName s
 		}
 
 		opts.Queries = qf.Queries
+	}
+
+	return nil
+}
+
+func parseLogsFileName(opts *options.Options, l log.Logger, logsFileName string) error {
+	if logsFileName != "" {
+		b, err := ioutil.ReadFile(logsFileName)
+		if err != nil {
+			return fmt.Errorf("--logs-file is invalid: %w", err)
+		}
+
+		lf := logsFile{}
+		err = yaml.Unmarshal(b, &lf)
+
+		if err != nil {
+			return fmt.Errorf("--logs-file content is invalid: %w", err)
+		}
+
+		l.Log("msg", fmt.Sprintf("%d logs configured to be written periodically", len(lf.Spec.Logs)))
+
+		opts.Logs = lf.Spec.Logs
 	}
 
 	return nil

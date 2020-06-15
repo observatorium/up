@@ -55,6 +55,8 @@ Usage of ./up:
     	The log filtering level. Options: 'error', 'warn', 'info', 'debug'. (default "info")
   -logs value
     	The logs that should be sent to remote-write requests.
+  -logs-file string
+    	A file containing logs to send against the logs write endpoint.
   -name string
     	The name of the metric to send in remote-write requests. (default "up")
   -period duration
