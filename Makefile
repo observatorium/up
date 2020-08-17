@@ -7,7 +7,7 @@ LOKI_VERSION ?= 1.5.0
 
 FIRST_GOPATH := $(firstword $(subst :, ,$(shell go env GOPATH)))
 GOLANGCILINT ?= $(FIRST_GOPATH)/bin/golangci-lint
-GOLANGCILINT_VERSION ?= v1.21.0
+GOLANGCILINT_VERSION ?= v1.30.0
 
 all: build
 
