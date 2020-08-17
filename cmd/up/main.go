@@ -36,6 +36,13 @@ import (
 const (
 	numOfEndpoints        = 2
 	timeoutBetweenQueries = 100 * time.Millisecond
+
+	// labels for query type
+	labelQuery      = "query"
+	labelQueryRange = "query_range"
+
+	labelSuccess = "success"
+	labelError   = "error"
 )
 
 type queriesFile struct {
@@ -98,10 +105,10 @@ func main() {
 
 			return runPeriodically(ctx, opts, m.RemoteWriteRequests, l, ch, func(rCtx context.Context) {
 				if err := write(rCtx, l, opts); err != nil {
-					m.RemoteWriteRequests.WithLabelValues("error").Inc()
+					m.RemoteWriteRequests.WithLabelValues(labelError).Inc()
 					level.Error(l).Log("msg", "failed to make request", "err", err)
 				} else {
-					m.RemoteWriteRequests.WithLabelValues("success").Inc()
+					m.RemoteWriteRequests.WithLabelValues(labelSuccess).Inc()
 				}
 			})
 		}, func(_ error) {
@@ -126,10 +133,10 @@ func main() {
 
 			return runPeriodically(ctx, opts, m.QueryResponses, l, ch, func(rCtx context.Context) {
 				if err := read(rCtx, l, m, opts); err != nil {
-					m.QueryResponses.WithLabelValues("error").Inc()
+					m.QueryResponses.WithLabelValues(labelError).Inc()
 					level.Error(l).Log("msg", "failed to query", "err", err)
 				} else {
-					m.QueryResponses.WithLabelValues("success").Inc()
+					m.QueryResponses.WithLabelValues(labelSuccess).Inc()
 				}
 			})
 		}, func(_ error) {
@@ -187,7 +194,7 @@ func read(ctx context.Context, l log.Logger, m instr.Metrics, opts options.Optio
 func query(ctx context.Context, l log.Logger, q options.QuerySpec, opts options.Options) (promapiv1.Warnings, error) {
 	switch opts.EndpointType {
 	case options.MetricsEndpointType:
-		return metrics.Query(ctx, l, opts.ReadEndpoint, opts.Token, q, opts.TLS)
+		return metrics.Query(ctx, l, opts.ReadEndpoint, opts.Token, q, opts.TLS, opts.DefaultStep)
 	case options.LogsEndpointType:
 		return nil, errors.Errorf("not implemented for logs")
 	}
@@ -223,24 +230,30 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 						t := time.Now()
 						warn, err := query(ctx, l, q, opts)
 						duration := time.Since(t).Seconds()
+						queryType := labelQuery
+						if q.Duration > 0 {
+							queryType = labelQueryRange
+						}
 						if err != nil {
 							level.Info(l).Log(
 								"msg", "failed to execute specified query",
+								"type", queryType,
 								"name", q.Name,
 								"duration", duration,
 								"warnings", fmt.Sprintf("%#+v", warn),
 								"err", err,
 							)
-							m.CustomQueryErrors.WithLabelValues(q.Name).Inc()
+							m.CustomQueryErrors.WithLabelValues(queryType, q.Name).Inc()
 						} else {
 							level.Debug(l).Log("msg", "successfully executed specified query",
+								"type", queryType,
 								"name", q.Name,
 								"duration", duration,
 								"warnings", fmt.Sprintf("%#+v", warn),
 							)
-							m.CustomQueryLastDuration.WithLabelValues(q.Name).Set(duration)
+							m.CustomQueryLastDuration.WithLabelValues(queryType, q.Name).Set(duration)
 						}
-						m.CustomQueryExecuted.WithLabelValues(q.Name).Inc()
+						m.CustomQueryExecuted.WithLabelValues(queryType, q.Name).Inc()
 					}
 					time.Sleep(timeoutBetweenQueries)
 				}
@@ -305,9 +318,9 @@ func reportResults(l log.Logger, ch chan error, c *prometheus.CounterVec, thresh
 
 		for _, l := range m1.Label {
 			switch *l.Value {
-			case "error":
+			case labelError:
 				failures = m1.GetCounter().GetValue()
-			case "success":
+			case labelSuccess:
 				success = m1.GetCounter().GetValue()
 			}
 		}
@@ -359,13 +372,15 @@ func parseFlags(l log.Logger) (options.Options, error) {
 		"The file from which to read a bearer token to set in the authorization header on requests.")
 	flag.StringVar(&queriesFileName, "queries-file", "", "A file containing queries to run against the read endpoint.")
 	flag.DurationVar(&opts.Period, "period", 5*time.Second, "The time to wait between remote-write requests.") //nolint:gomnd
-	flag.DurationVar(&opts.Duration, "duration", 5*time.Minute,                                                //nolint:gomnd
+	flag.DurationVar(&opts.Duration, "duration", 5*time.Minute, //nolint:gomnd
 		"The duration of the up command to run until it stops. If 0 it will not stop until the process is terminated.")
 	flag.Float64Var(&opts.SuccessThreshold, "threshold", 0.9, "The percentage of successful requests needed to succeed overall. 0 - 1.")
 	flag.DurationVar(&opts.Latency, "latency", 15*time.Second, //nolint:gomnd
 		"The maximum allowable latency between writing and reading.")
 	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second, //nolint:gomnd
 		"The time to wait before executing the first query.")
+	flag.DurationVar(&opts.DefaultStep, "step", 30*time.Second, "Default step duration for range query. Can be override if step is set in query spec.")
+
 	flag.StringVar(&opts.TLS.Cert, "tls-client-cert-file", "",
 		"File containing the default x509 Certificate for HTTPS. Leave blank to disable TLS.")
 	flag.StringVar(&opts.TLS.Key, "tls-client-private-key-file", "",

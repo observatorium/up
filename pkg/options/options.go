@@ -36,6 +36,7 @@ type Options struct {
 	InitialQueryDelay time.Duration
 	SuccessThreshold  float64
 	TLS               TLS
+	DefaultStep       time.Duration
 }
 
 type EndpointType string
@@ -49,9 +50,12 @@ type LogsSpec struct {
 	Logs logs `yaml:"logs"`
 }
 
+// TODO(yeya24): Add a bool value to control cache behavior when available in thanos.
 type QuerySpec struct {
-	Name  string `yaml:"name"`
-	Query string `yaml:"query"`
+	Name     string         `yaml:"name"`
+	Query    string         `yaml:"query"`
+	Duration model.Duration `yaml:"duration"`
+	Step     time.Duration  `yaml:"step"`
 }
 
 type labelArg []prompb.Label

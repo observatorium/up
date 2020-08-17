@@ -63,6 +63,8 @@ Usage of ./up:
     	The time to wait between remote-write requests. (default 5s)
   -queries-file string
     	A file containing queries to run against the read endpoint.
+  -step duration
+    	Default step duration for range query. Can be override if step is set in query spec. (default 30s)
   -threshold float
     	The percentage of successful requests needed to succeed overall. 0 - 1. (default 0.9)
   -tls-ca-file string
