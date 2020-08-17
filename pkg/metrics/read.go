@@ -132,7 +132,7 @@ func Read(
 		return errors.Errorf("expected one metric, got %d", len(vec))
 	}
 
-	t := time.Unix(int64(vec[0].Value/1000), 0) //nolint:mnd
+	t := time.Unix(int64(vec[0].Value/1000), 0)
 
 	diffSeconds := time.Since(t).Seconds()
 

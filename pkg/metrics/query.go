@@ -71,7 +71,7 @@ func Query(
 			step = query.Step
 		}
 
-		res, warn, err = a.QueryRange(ctx, query.Query, promapiv1.Range{
+		_, warn, err = a.QueryRange(ctx, query.Query, promapiv1.Range{
 			Start: time.Now().Add(-time.Duration(query.Duration)),
 			End:   time.Now(),
 			Step:  step,

@@ -37,7 +37,7 @@ const (
 	numOfEndpoints        = 2
 	timeoutBetweenQueries = 100 * time.Millisecond
 
-	// labels for query type
+	// Labels for query type.
 	labelQuery      = "query"
 	labelQueryRange = "query_range"
 
@@ -68,6 +68,11 @@ func main() {
 	l = log.WithPrefix(l, "caller", log.DefaultCaller)
 
 	reg := prometheus.NewRegistry()
+	reg.MustRegister(
+		prometheus.NewGoCollector(),
+		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
+	)
+
 	m := instr.RegisterMetrics(reg)
 
 	// Error channel to gather failures
@@ -332,7 +337,7 @@ func reportResults(l log.Logger, ch chan error, c *prometheus.CounterVec, thresh
 	if ratio < threshold {
 		level.Error(l).Log("msg", "ratio is below threshold")
 
-		err := errors.Errorf("failed with less than %2.f%% success ratio - actual %2.f%%", threshold*100, ratio*100) //nolint:gomnd
+		err := errors.Errorf("failed with less than %2.f%% success ratio - actual %2.f%%", threshold*100, ratio*100)
 		ch <- err
 
 		return err
@@ -371,15 +376,16 @@ func parseFlags(l log.Logger) (options.Options, error) {
 	flag.StringVar(&tokenFile, "token-file", "",
 		"The file from which to read a bearer token to set in the authorization header on requests.")
 	flag.StringVar(&queriesFileName, "queries-file", "", "A file containing queries to run against the read endpoint.")
-	flag.DurationVar(&opts.Period, "period", 5*time.Second, "The time to wait between remote-write requests.") //nolint:gomnd
-	flag.DurationVar(&opts.Duration, "duration", 5*time.Minute, //nolint:gomnd
+	flag.DurationVar(&opts.Period, "period", 5*time.Second, "The time to wait between remote-write requests.")
+	flag.DurationVar(&opts.Duration, "duration", 5*time.Minute,
 		"The duration of the up command to run until it stops. If 0 it will not stop until the process is terminated.")
 	flag.Float64Var(&opts.SuccessThreshold, "threshold", 0.9, "The percentage of successful requests needed to succeed overall. 0 - 1.")
-	flag.DurationVar(&opts.Latency, "latency", 15*time.Second, //nolint:gomnd
+	flag.DurationVar(&opts.Latency, "latency", 15*time.Second,
 		"The maximum allowable latency between writing and reading.")
-	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second, //nolint:gomnd
+	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second,
 		"The time to wait before executing the first query.")
-	flag.DurationVar(&opts.DefaultStep, "step", 30*time.Second, "Default step duration for range query. Can be override if step is set in query spec.")
+	flag.DurationVar(&opts.DefaultStep, "step", 30*time.Second, "Default step duration for range query. "+
+		"Can be override if step is set in query spec.")
 
 	flag.StringVar(&opts.TLS.Cert, "tls-client-cert-file", "",
 		"File containing the default x509 Certificate for HTTPS. Leave blank to disable TLS.")

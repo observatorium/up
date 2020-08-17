@@ -5,6 +5,42 @@ run:
   deadline: 3m
   tests: true
 
+# output configuration options
+output:
+  # colored-line-number|line-number|json|tab|checkstyle, default is "colored-line-number"
+  format: colored-line-number
+
+  # print lines of code with issue, default is true
+  print-issued-lines: true
+
+  # print linter name in the end of issue text, default is true
+  print-linter-name: true
+
+linters:
+  enable:
+    # Sorted alphabetically.
+    - bodyclose
+    - deadcode
+    - errcheck
+    - exportloopref
+    - funlen
+    - gocognit
+    - goconst
+    - godot
+    - gofmt
+    - goimports
+    - gosimple
+    - govet
+    - ineffassign
+    - lll
+    - misspell
+    - staticcheck
+    - structcheck
+    - typecheck
+    - unparam
+    - unused
+    - varcheck
+
 linters-settings:
   errcheck:
     exclude: .errcheck_excludes

@@ -27,7 +27,7 @@ func RegisterMetrics(reg *prometheus.Registry) Metrics {
 		MetricValueDifference: promauto.With(reg).NewHistogram(prometheus.HistogramOpts{
 			Name:    "up_metric_value_difference",
 			Help:    "The time difference between the current timestamp and the timestamp in the metrics value.",
-			Buckets: prometheus.LinearBuckets(4, 0.25, 16), //nolint:gomnd
+			Buckets: prometheus.LinearBuckets(4, 0.25, 16),
 		}),
 		CustomQueryExecuted: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Name: "up_custom_query_executed_total",
@@ -42,10 +42,6 @@ func RegisterMetrics(reg *prometheus.Registry) Metrics {
 			Help: "The duration of the query execution last time the query was executed successfully.",
 		}, []string{"type", "query"}),
 	}
-	reg.MustRegister(
-		prometheus.NewGoCollector(),
-		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
-	)
 
 	return m
 }

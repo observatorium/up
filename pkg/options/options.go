@@ -75,7 +75,7 @@ func (la *labelArg) Set(v string) error {
 
 	for i, l := range labels {
 		parts := strings.SplitN(l, "=", 2)
-		if len(parts) != 2 { //nolint:gomnd
+		if len(parts) != 2 {
 			return errors.Errorf("unrecognized label %q", l)
 		}
 

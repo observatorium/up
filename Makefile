@@ -32,7 +32,7 @@ go-fmt:
 
 .PHONY: lint
 lint: $(GOLANGCILINT)
-	$(GOLANGCILINT) run -v --enable-all -c .golangci.yml
+	$(GOLANGCILINT) run -v -c .golangci.yml
 
 container: Dockerfile up
 	docker build -t quay.io/observatorium/up:latest .
