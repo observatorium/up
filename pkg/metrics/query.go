@@ -83,15 +83,16 @@ func Query(
 
 		// Don't log response in range query case because there are a lot.
 		level.Debug(l).Log("msg", "request finished", "name", query.Name, "trace-id", rt.TraceID)
-	} else {
-		res, warn, err = a.Query(ctx, query.Query, time.Now())
-		if err != nil {
-			err = fmt.Errorf("querying: %w", err)
-			return warn, err
-		}
-
-		level.Debug(l).Log("msg", "request finished", "name", query.Name, "response", res.String(), "trace-id", rt.TraceID)
+		return warn, err
 	}
+
+	res, warn, err = a.Query(ctx, query.Query, time.Now())
+	if err != nil {
+		err = fmt.Errorf("querying: %w", err)
+		return warn, err
+	}
+
+	level.Debug(l).Log("msg", "request finished", "name", query.Name, "response", res.String(), "trace-id", rt.TraceID)
 
 	return warn, err
 }

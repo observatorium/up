@@ -384,8 +384,8 @@ func parseFlags(l log.Logger) (options.Options, error) {
 		"The maximum allowable latency between writing and reading.")
 	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second,
 		"The time to wait before executing the first query.")
-	flag.DurationVar(&opts.DefaultStep, "step", 30*time.Second, "Default step duration for range query. "+
-		"Can be override if step is set in query spec.")
+	flag.DurationVar(&opts.DefaultStep, "step", 30*time.Second, "Default step duration for range queries. "+
+		"Can be overridden if step is set in query spec.")
 
 	flag.StringVar(&opts.TLS.Cert, "tls-client-cert-file", "",
 		"File containing the default x509 Certificate for HTTPS. Leave blank to disable TLS.")
