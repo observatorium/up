@@ -64,7 +64,7 @@ Usage of ./up:
   -queries-file string
     	A file containing queries to run against the read endpoint.
   -step duration
-    	Default step duration for range queries. Can be overridden if step is set in query spec. (default 30s)
+    	Default step duration for range queries. Can be overridden if step is set in query spec. (default 5m0s)
   -threshold float
     	The percentage of successful requests needed to succeed overall. 0 - 1. (default 0.9)
   -tls-ca-file string
