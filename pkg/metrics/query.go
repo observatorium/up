@@ -26,6 +26,7 @@ func Query(
 	t auth.TokenProvider,
 	query options.QuerySpec,
 	tls options.TLS,
+	defaultStep time.Duration,
 ) (promapiv1.Warnings, error) {
 	var (
 		warn promapiv1.Warnings
@@ -63,6 +64,27 @@ func Query(
 	a := promapiv1.NewAPI(c)
 
 	var res model.Value
+
+	if query.Duration > 0 {
+		step := defaultStep
+		if query.Step > 0 {
+			step = query.Step
+		}
+
+		_, warn, err = a.QueryRange(ctx, query.Query, promapiv1.Range{
+			Start: time.Now().Add(-time.Duration(query.Duration)),
+			End:   time.Now(),
+			Step:  step,
+		})
+		if err != nil {
+			err = fmt.Errorf("querying: %w", err)
+			return warn, err
+		}
+
+		// Don't log response in range query case because there are a lot.
+		level.Debug(l).Log("msg", "request finished", "name", query.Name, "trace-id", rt.TraceID)
+		return warn, err
+	}
 
 	res, warn, err = a.Query(ctx, query.Query, time.Now())
 	if err != nil {

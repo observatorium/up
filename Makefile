@@ -7,7 +7,7 @@ LOKI_VERSION ?= 1.5.0
 
 FIRST_GOPATH := $(firstword $(subst :, ,$(shell go env GOPATH)))
 GOLANGCILINT ?= $(FIRST_GOPATH)/bin/golangci-lint
-GOLANGCILINT_VERSION ?= v1.21.0
+GOLANGCILINT_VERSION ?= v1.30.0
 
 all: build
 
@@ -32,7 +32,7 @@ go-fmt:
 
 .PHONY: lint
 lint: $(GOLANGCILINT)
-	$(GOLANGCILINT) run -v --enable-all -c .golangci.yml
+	$(GOLANGCILINT) run -v -c .golangci.yml
 
 container: Dockerfile up
 	docker build -t quay.io/observatorium/up:latest .

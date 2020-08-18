@@ -9,7 +9,7 @@ platform:
 steps:
 - name: test
   pull: always
-  image: golang:1.13
+  image: golang:1.14
   commands:
   - apt-get update && apt-get install unzip
   - go test -v -race ./...
@@ -22,13 +22,13 @@ steps:
 
 - name: lint
   pull: always
-  image: golang:1.13
+  image: golang:1.14
   commands:
   - make lint
 
 - name: build
   pull: always
-  image: golang:1.13
+  image: golang:1.14
   commands:
   - go build -v ./cmd/up
   environment:
@@ -38,7 +38,7 @@ steps:
 
 - name: generate
   pull: always
-  image: golang:1.13
+  image: golang:1.14
   commands:
     - make README.md
     - git diff --exit-code
@@ -48,7 +48,7 @@ steps:
     GOPROXY: https://proxy.golang.org
 
 - name: tags
-  image: golang:1.13
+  image: golang:1.14
   commands:
   - echo -n "$(git rev-parse --abbrev-ref HEAD | tr / -)-$(date +%Y-%m-%d)-$(git rev-parse --short HEAD),latest" > .tags
   when:
