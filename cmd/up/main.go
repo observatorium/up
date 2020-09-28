@@ -201,7 +201,7 @@ func query(ctx context.Context, l log.Logger, q options.QuerySpec, opts options.
 	case options.MetricsEndpointType:
 		return metrics.Query(ctx, l, opts.ReadEndpoint, opts.Token, q, opts.TLS, opts.DefaultStep)
 	case options.LogsEndpointType:
-		return nil, errors.Errorf("not implemented for logs")
+		return logs.Query(ctx, l, opts.ReadEndpoint, opts.Token, q, opts.TLS, opts.DefaultStep)
 	}
 
 	return nil, nil
