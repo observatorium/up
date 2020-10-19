@@ -38,7 +38,6 @@ const (
 	ErrServer      promapiv1.ErrorType = "server_error"
 	ErrClient      promapiv1.ErrorType = "client_error"
 
-	epQuery      = "/api/v1/query"
 	epQueryRange = "/api/v1/query_range"
 )
 
@@ -159,7 +158,7 @@ func doGetFallback(
 	u *url.URL,
 	args url.Values,
 	cache bool,
-) (*http.Response, []byte, promapiv1.Warnings, error) {
+) (*http.Response, []byte, promapiv1.Warnings, error) { //nolint:unparam
 	req, err := http.NewRequest(http.MethodPost, u.String(), strings.NewReader(args.Encode()))
 	if err != nil {
 		return nil, nil, nil, err
@@ -207,7 +206,7 @@ func QueryRange(ctx context.Context, client promapi.Client, query string, r prom
 }
 
 func Query(ctx context.Context, client promapi.Client, query string, ts time.Time) (model.Value, promapiv1.Warnings, error) {
-	u := client.URL(epQuery, nil)
+	u := client.URL("", nil)
 	q := u.Query()
 
 	q.Set("query", query)
