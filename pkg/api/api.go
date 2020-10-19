@@ -152,8 +152,8 @@ func do(ctx context.Context, client promapi.Client, req *http.Request) (*http.Re
 	return resp, result.Data, result.Warnings, err
 }
 
-// DoGetFallback will attempt to do the request as-is, and on a 405 it will fallback to a GET request.
-func DoGetFallback(
+// doGetFallback will attempt to do the request as-is, and on a 405 it will fallback to a GET request.
+func doGetFallback(
 	ctx context.Context,
 	client promapi.Client,
 	u *url.URL,
@@ -196,7 +196,7 @@ func QueryRange(ctx context.Context, client promapi.Client, query string, r prom
 	q.Set("end", formatTime(r.End))
 	q.Set("step", strconv.FormatFloat(r.Step.Seconds(), 'f', -1, 64))
 
-	_, body, warnings, err := DoGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
+	_, body, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -216,7 +216,7 @@ func Query(ctx context.Context, client promapi.Client, query string, ts time.Tim
 	}
 
 	// Instant query doesn't support cache
-	_, body, warnings, err := DoGetFallback(ctx, client, u, q, false) //nolint:bodyclose
+	_, body, warnings, err := doGetFallback(ctx, client, u, q, false) //nolint:bodyclose
 	if err != nil {
 		return nil, warnings, err
 	}
