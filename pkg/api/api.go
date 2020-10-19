@@ -38,6 +38,7 @@ const (
 	ErrServer      promapiv1.ErrorType = "server_error"
 	ErrClient      promapiv1.ErrorType = "client_error"
 
+	epQuery      = "/api/v1/query"
 	epQueryRange = "/api/v1/query_range"
 )
 
@@ -56,13 +57,46 @@ func apiError(code int) bool {
 	return code == statusAPIError || code == http.StatusBadRequest
 }
 
-// queryResult contains result data for a query.
+// 1ueryResult contains result data for a query.
 type queryResult struct {
 	Type   model.ValueType `json:"resultType"`
 	Result interface{}     `json:"result"`
 
 	// The decoded value.
 	v model.Value
+}
+
+func (qr *queryResult) UnmarshalJSON(b []byte) error {
+	v := struct {
+		Type   model.ValueType `json:"resultType"`
+		Result json.RawMessage `json:"result"`
+	}{}
+
+	err := json.Unmarshal(b, &v)
+	if err != nil {
+		return err
+	}
+
+	switch v.Type {
+	case model.ValScalar:
+		var sv model.Scalar
+		err = json.Unmarshal(v.Result, &sv)
+		qr.v = &sv
+
+	case model.ValVector:
+		var vv model.Vector
+		err = json.Unmarshal(v.Result, &vv)
+		qr.v = vv
+
+	case model.ValMatrix:
+		var mv model.Matrix
+		err = json.Unmarshal(v.Result, &mv)
+		qr.v = mv
+
+	default:
+		err = fmt.Errorf("unexpected value type %q", v.Type)
+	}
+	return err
 }
 
 type apiResponse struct {
@@ -118,8 +152,8 @@ func do(ctx context.Context, client promapi.Client, req *http.Request) (*http.Re
 	return resp, result.Data, result.Warnings, err
 }
 
-// doGetFallback will attempt to do the request as-is, and on a 405 it will fallback to a GET request.
-func doGetFallback(
+// DoGetFallback will attempt to do the request as-is, and on a 405 it will fallback to a GET request.
+func DoGetFallback(
 	ctx context.Context,
 	client promapi.Client,
 	u *url.URL,
@@ -162,13 +196,32 @@ func QueryRange(ctx context.Context, client promapi.Client, query string, r prom
 	q.Set("end", formatTime(r.End))
 	q.Set("step", strconv.FormatFloat(r.Step.Seconds(), 'f', -1, 64))
 
-	_, body, warnings, err := doGetFallback(ctx, client, u, q, cache)
+	_, body, warnings, err := DoGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
 	if err != nil {
 		return nil, warnings, err
 	}
 
 	var qres queryResult
 
+	return qres.v, warnings, json.Unmarshal(body, &qres)
+}
+
+func Query(ctx context.Context, client promapi.Client, query string, ts time.Time) (model.Value, promapiv1.Warnings, error) {
+	u := client.URL(epQuery, nil)
+	q := u.Query()
+
+	q.Set("query", query)
+	if !ts.IsZero() {
+		q.Set("time", formatTime(ts))
+	}
+
+	// Instant query doesn't support cache
+	_, body, warnings, err := DoGetFallback(ctx, client, u, q, false) //nolint:bodyclose
+	if err != nil {
+		return nil, warnings, err
+	}
+
+	var qres queryResult
 	return qres.v, warnings, json.Unmarshal(body, &qres)
 }
 
