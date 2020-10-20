@@ -56,7 +56,7 @@ func apiError(code int) bool {
 	return code == statusAPIError || code == http.StatusBadRequest
 }
 
-// 1ueryResult contains result data for a query.
+// queryResult contains result data for a query.
 type queryResult struct {
 	Type   model.ValueType `json:"resultType"`
 	Result interface{}     `json:"result"`
