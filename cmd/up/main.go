@@ -540,11 +540,12 @@ func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName s
 						return fmt.Errorf("query %q in --queries-file matchers are invalid: %w", q.Name, err)
 					}
 				}
-			} else if q.Query != "" {
-				_, err = parser.ParseExpr(q.Query)
-				if err != nil {
-					return fmt.Errorf("query %q in --queries-file content is invalid: %w", q.Name, err)
-				}
+				continue
+			}
+
+			_, err = parser.ParseExpr(q.Query)
+			if err != nil {
+				return fmt.Errorf("query %q in --queries-file content is invalid: %w", q.Name, err)
 			}
 		}
 
