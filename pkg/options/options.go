@@ -53,6 +53,7 @@ type LogsSpec struct {
 type QuerySpec struct {
 	Name     string         `yaml:"name"`
 	Query    string         `yaml:"query"`
+	Matchers []string       `yaml:"matchers"`
 	Duration model.Duration `yaml:"duration"`
 	Step     time.Duration  `yaml:"step"`
 	Cache    bool           `yaml:"cache"`

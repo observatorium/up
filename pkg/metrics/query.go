@@ -67,12 +67,25 @@ func Query(
 	var res model.Value
 
 	if query.Duration > 0 {
+		// Series query.
+		if len(query.Matchers) > 0 {
+			_, warn, err = api.Series(ctx, c, query.Matchers, time.Now().Add(-time.Duration(query.Duration)), time.Now(), query.Cache)
+			if err != nil {
+				err = fmt.Errorf("querying: %w", err)
+				return warn, err
+			}
+
+			// Don't log response in range query case because there are a lot.
+			level.Debug(l).Log("msg", "request finished", "name", query.Name, "trace-id", rt.TraceID)
+			return warn, err
+		}
+
 		step := defaultStep
 		if query.Step > 0 {
 			step = query.Step
 		}
 
-		_, warn, err := api.QueryRange(ctx, c, query.Query, promapiv1.Range{
+		_, warn, err = api.QueryRange(ctx, c, query.Query, promapiv1.Range{
 			Start: time.Now().Add(-time.Duration(query.Duration)),
 			End:   time.Now(),
 			Step:  step,
