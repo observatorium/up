@@ -50,12 +50,12 @@ type LogsSpec struct {
 	Logs logs `yaml:"logs"`
 }
 
-// TODO(yeya24): Add a bool value to control cache behavior when available in thanos.
 type QuerySpec struct {
 	Name     string         `yaml:"name"`
 	Query    string         `yaml:"query"`
 	Duration model.Duration `yaml:"duration"`
 	Step     time.Duration  `yaml:"step"`
+	Cache    bool           `yaml:"cache"`
 }
 
 type labelArg []prompb.Label

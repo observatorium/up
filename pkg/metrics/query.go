@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/observatorium/up/pkg/api"
 	"github.com/observatorium/up/pkg/auth"
 	"github.com/observatorium/up/pkg/options"
 	"github.com/observatorium/up/pkg/transport"
@@ -71,11 +72,11 @@ func Query(
 			step = query.Step
 		}
 
-		_, warn, err = a.QueryRange(ctx, query.Query, promapiv1.Range{
+		_, warn, err := api.QueryRange(ctx, c, query.Query, promapiv1.Range{
 			Start: time.Now().Add(-time.Duration(query.Duration)),
 			End:   time.Now(),
 			Step:  step,
-		})
+		}, query.Cache)
 		if err != nil {
 			err = fmt.Errorf("querying: %w", err)
 			return warn, err
