@@ -193,7 +193,7 @@ func QueryRange(ctx context.Context, client promapi.Client, query string, r prom
 	q.Set("end", formatTime(r.End))
 	q.Set("step", strconv.FormatFloat(r.Step.Seconds(), 'f', -1, 64))
 
-	_, data, warnings, err := doGetFallback(ctx, client, u, q, cache)
+	_, data, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -213,7 +213,7 @@ func Query(ctx context.Context, client promapi.Client, query string, ts time.Tim
 		q.Set("time", formatTime(ts))
 	}
 
-	_, data, warnings, err := doGetFallback(ctx, client, u, q, cache)
+	_, data, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
 	if err != nil {
 		return nil, warnings, err
 	}
