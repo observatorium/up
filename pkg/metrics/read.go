@@ -64,7 +64,7 @@ func Read(
 	query := fmt.Sprintf("{%s}", strings.Join(labelSelectors, ","))
 
 	ts := time.Now().Add(ago)
-	value, _, err := api.Query(ctx, client, query, ts)
+	value, _, err := api.Query(ctx, client, query, ts, false)
 	if err != nil {
 		return errors.Wrap(err, "query request failed")
 	}

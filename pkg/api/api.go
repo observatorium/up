@@ -168,21 +168,19 @@ func doGetFallback(
 		req.Header.Set("Cache-Control", "no-store")
 	}
 
-	resp, body, warnings, err := do(ctx, client, req)
+	resp, data, warnings, err := do(ctx, client, req)
 	if resp != nil && resp.StatusCode == http.StatusMethodNotAllowed {
 		u.RawQuery = args.Encode()
 		req, err = http.NewRequest(http.MethodGet, u.String(), nil)
 		if err != nil {
 			return nil, nil, warnings, err
 		}
-
-	} else {
-		if err != nil {
-			return resp, body, warnings, err
+		if !cache {
+			req.Header.Set("Cache-Control", "no-store")
 		}
-		return resp, body, warnings, nil
+		return do(ctx, client, req)
 	}
-	return do(ctx, client, req)
+	return resp, data, warnings, err
 }
 
 func QueryRange(ctx context.Context, client promapi.Client, query string, r promapiv1.Range,
@@ -195,17 +193,18 @@ func QueryRange(ctx context.Context, client promapi.Client, query string, r prom
 	q.Set("end", formatTime(r.End))
 	q.Set("step", strconv.FormatFloat(r.Step.Seconds(), 'f', -1, 64))
 
-	_, body, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
+	_, data, warnings, err := doGetFallback(ctx, client, u, q, cache)
 	if err != nil {
 		return nil, warnings, err
 	}
 
 	var qres queryResult
 
-	return qres.v, warnings, json.Unmarshal(body, &qres)
+	return qres.v, warnings, json.Unmarshal(data, &qres)
 }
 
-func Query(ctx context.Context, client promapi.Client, query string, ts time.Time) (model.Value, promapiv1.Warnings, error) {
+func Query(ctx context.Context, client promapi.Client, query string, ts time.Time,
+	cache bool) (model.Value, promapiv1.Warnings, error) {
 	u := client.URL("", nil)
 	q := u.Query()
 
@@ -214,14 +213,13 @@ func Query(ctx context.Context, client promapi.Client, query string, ts time.Tim
 		q.Set("time", formatTime(ts))
 	}
 
-	// Instant query doesn't support cache
-	_, body, warnings, err := doGetFallback(ctx, client, u, q, false) //nolint:bodyclose
+	_, data, warnings, err := doGetFallback(ctx, client, u, q, cache)
 	if err != nil {
 		return nil, warnings, err
 	}
 
 	var qres queryResult
-	return qres.v, warnings, json.Unmarshal(body, &qres)
+	return qres.v, warnings, json.Unmarshal(data, &qres)
 }
 
 func formatTime(t time.Time) string {
