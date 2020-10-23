@@ -40,6 +40,7 @@ const (
 	// Labels for query type.
 	labelQuery      = "query"
 	labelQueryRange = "query_range"
+	labelSeries     = "series"
 
 	labelSuccess = "success"
 	labelError   = "error"
@@ -237,7 +238,11 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 						duration := time.Since(t).Seconds()
 						queryType := labelQuery
 						if q.Duration > 0 {
-							queryType = labelQueryRange
+							if q.Query != "" {
+								queryType = labelQueryRange
+							} else if len(q.Matchers) > 0 {
+								queryType = labelSeries
+							}
 						}
 						if err != nil {
 							level.Info(l).Log(
@@ -529,6 +534,15 @@ func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName s
 
 		// validate queries
 		for _, q := range qf.Queries {
+			if len(q.Matchers) > 0 {
+				for _, s := range q.Matchers {
+					if _, err := parser.ParseMetricSelector(s); err != nil {
+						return fmt.Errorf("query %q in --queries-file matchers are invalid: %w", q.Name, err)
+					}
+				}
+				continue
+			}
+
 			_, err = parser.ParseExpr(q.Query)
 			if err != nil {
 				return fmt.Errorf("query %q in --queries-file content is invalid: %w", q.Name, err)

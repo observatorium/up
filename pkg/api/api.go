@@ -39,6 +39,7 @@ const (
 	ErrClient      promapiv1.ErrorType = "client_error"
 
 	epQueryRange = "/api/v1/query_range"
+	epSeries     = "/api/v1/series"
 )
 
 func errorTypeAndMsgFor(resp *http.Response) (promapiv1.ErrorType, string) {
@@ -220,6 +221,27 @@ func Query(ctx context.Context, client promapi.Client, query string, ts time.Tim
 
 	var qres queryResult
 	return qres.v, warnings, json.Unmarshal(data, &qres)
+}
+
+func Series(ctx context.Context, client promapi.Client, matches []string, startTime time.Time,
+	endTime time.Time, cache bool) ([]model.LabelSet, promapiv1.Warnings, error) {
+	u := client.URL(epSeries, nil)
+	q := u.Query()
+
+	for _, m := range matches {
+		q.Add("match[]", m)
+	}
+
+	q.Set("start", formatTime(startTime))
+	q.Set("end", formatTime(endTime))
+
+	_, body, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
+	if err != nil {
+		return nil, warnings, err
+	}
+
+	var mset []model.LabelSet
+	return mset, warnings, json.Unmarshal(body, &mset)
 }
 
 func formatTime(t time.Time) string {
