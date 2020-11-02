@@ -8,7 +8,7 @@ type queryResponse struct {
 	} `json:"data"`
 }
 
-// PushRequest reprents the payload to push logs to Loki.
+// PushRequest represents the payload to push logs to Loki.
 type PushRequest struct {
 	Streams []stream `json:"streams"`
 }

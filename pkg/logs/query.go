@@ -24,10 +24,15 @@ func Query(
 	l log.Logger,
 	endpoint *url.URL,
 	t auth.TokenProvider,
-	query options.QuerySpec,
+	q options.Query,
 	tls options.TLS,
 	defaultStep time.Duration,
 ) (promapiv1.Warnings, error) {
+	// TODO: avoid type casting when we need to support all query endpoints for logs.
+	query, ok := q.(*options.QuerySpec)
+	if !ok {
+		return nil, errors.New("Incorrect query type for logs queries")
+	}
 	level.Debug(l).Log("msg", "running specified query", "name", query.Name, "query", query.Query)
 
 	var (

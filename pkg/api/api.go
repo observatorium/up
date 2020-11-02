@@ -38,8 +38,10 @@ const (
 	ErrServer      promapiv1.ErrorType = "server_error"
 	ErrClient      promapiv1.ErrorType = "client_error"
 
-	epQueryRange = "/api/v1/query_range"
-	epSeries     = "/api/v1/series"
+	epQueryRange  = "/api/v1/query_range"
+	epSeries      = "/api/v1/series"
+	epLabels      = "/api/v1/labels"
+	epLabelValues = "/api/v1/label/:name/values"
 )
 
 func errorTypeAndMsgFor(resp *http.Response) (promapiv1.ErrorType, string) {
@@ -223,8 +225,8 @@ func Query(ctx context.Context, client promapi.Client, query string, ts time.Tim
 	return qres.v, warnings, json.Unmarshal(data, &qres)
 }
 
-func Series(ctx context.Context, client promapi.Client, matches []string, startTime time.Time,
-	endTime time.Time, cache bool) ([]model.LabelSet, promapiv1.Warnings, error) {
+func Series(ctx context.Context, client promapi.Client, matches []string, startTime time.Time, endTime time.Time,
+	cache bool) ([]model.LabelSet, promapiv1.Warnings, error) {
 	u := client.URL(epSeries, nil)
 	q := u.Query()
 
@@ -242,6 +244,40 @@ func Series(ctx context.Context, client promapi.Client, matches []string, startT
 
 	var mset []model.LabelSet
 	return mset, warnings, json.Unmarshal(body, &mset)
+}
+
+func LabelNames(ctx context.Context, client promapi.Client, startTime time.Time, endTime time.Time,
+	cache bool) ([]string, promapiv1.Warnings, error) {
+	u := client.URL(epLabels, nil)
+	q := u.Query()
+	q.Set("start", formatTime(startTime))
+	q.Set("end", formatTime(endTime))
+
+	u.RawQuery = q.Encode()
+
+	_, body, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
+	if err != nil {
+		return nil, warnings, err
+	}
+	var labelNames []string
+	return labelNames, warnings, json.Unmarshal(body, &labelNames)
+}
+
+func LabelValues(ctx context.Context, client promapi.Client, label string, startTime time.Time, endTime time.Time,
+	cache bool) (model.LabelValues, promapiv1.Warnings, error) {
+	u := client.URL(epLabelValues, map[string]string{"name": label})
+	q := u.Query()
+	q.Set("start", formatTime(startTime))
+	q.Set("end", formatTime(endTime))
+
+	u.RawQuery = q.Encode()
+
+	_, body, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
+	if err != nil {
+		return nil, warnings, err
+	}
+	var labelValues model.LabelValues
+	return labelValues, warnings, json.Unmarshal(body, &labelValues)
 }
 
 func formatTime(t time.Time) string {
