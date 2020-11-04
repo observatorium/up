@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	// Labels for query type.
+	// Labels for query types.
 	labelQuery      = "query"
 	labelQueryRange = "query_range"
 	labelSeries     = "series"

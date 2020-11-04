@@ -42,10 +42,10 @@ const (
 	labelError   = "error"
 )
 
-type queriesFile struct {
-	Queries       []options.QuerySpec  `yaml:"queries"`
-	LabelQueries  []options.LabelSpec  `yaml:"label_queries"`
-	SeriesQueries []options.SeriesSpec `yaml:"series_queries"`
+type callsFile struct {
+	Queries []options.QuerySpec  `yaml:"queries"`
+	Labels  []options.LabelSpec  `yaml:"labels"`
+	Series  []options.SeriesSpec `yaml:"series"`
 }
 
 type logsFile struct {
@@ -515,7 +515,7 @@ func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName s
 			return fmt.Errorf("--queries-file is invalid: %w", err)
 		}
 
-		qf := queriesFile{}
+		qf := callsFile{}
 		err = yaml.Unmarshal(b, &qf)
 
 		if err != nil {
@@ -533,7 +533,7 @@ func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName s
 			opts.Queries = append(opts.Queries, q)
 		}
 
-		for _, q := range qf.SeriesQueries {
+		for _, q := range qf.Series {
 			if len(q.Matchers) == 0 {
 				return fmt.Errorf("series query %q in --queries-file matchers cannot be empty", q.Name)
 			}
@@ -547,7 +547,7 @@ func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName s
 			opts.Queries = append(opts.Queries, q)
 		}
 
-		for _, q := range qf.LabelQueries {
+		for _, q := range qf.Labels {
 			if len(q.Label) > 0 && !model.LabelNameRE.MatchString(q.Label) {
 				return fmt.Errorf("label_values query %q in --queries-file label is invalid: %w", q.Name, err)
 			}
