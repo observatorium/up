@@ -29,7 +29,7 @@ type Options struct {
 	Listen            string
 	Name              string
 	Token             auth.TokenProvider
-	Queries           []QuerySpec
+	Queries           []Query
 	Period            time.Duration
 	Duration          time.Duration
 	Latency           time.Duration
@@ -48,15 +48,6 @@ const (
 
 type LogsSpec struct {
 	Logs logs `yaml:"logs"`
-}
-
-type QuerySpec struct {
-	Name     string         `yaml:"name"`
-	Query    string         `yaml:"query"`
-	Matchers []string       `yaml:"matchers"`
-	Duration model.Duration `yaml:"duration"`
-	Step     time.Duration  `yaml:"step"`
-	Cache    bool           `yaml:"cache"`
 }
 
 type labelArg []prompb.Label

@@ -28,6 +28,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/promql/parser"
 	"gopkg.in/yaml.v2"
@@ -37,17 +38,14 @@ const (
 	numOfEndpoints        = 2
 	timeoutBetweenQueries = 100 * time.Millisecond
 
-	// Labels for query type.
-	labelQuery      = "query"
-	labelQueryRange = "query_range"
-	labelSeries     = "series"
-
 	labelSuccess = "success"
 	labelError   = "error"
 )
 
-type queriesFile struct {
-	Queries []options.QuerySpec `yaml:"queries"`
+type callsFile struct {
+	Queries []options.QuerySpec  `yaml:"queries"`
+	Labels  []options.LabelSpec  `yaml:"labels"`
+	Series  []options.SeriesSpec `yaml:"series"`
 }
 
 type logsFile struct {
@@ -197,7 +195,7 @@ func read(ctx context.Context, l log.Logger, m instr.Metrics, opts options.Optio
 	return nil
 }
 
-func query(ctx context.Context, l log.Logger, q options.QuerySpec, opts options.Options) (promapiv1.Warnings, error) {
+func query(ctx context.Context, l log.Logger, q options.Query, opts options.Options) (promapiv1.Warnings, error) {
 	switch opts.EndpointType {
 	case options.MetricsEndpointType:
 		return metrics.Query(ctx, l, opts.ReadEndpoint, opts.Token, q, opts.TLS, opts.DefaultStep)
@@ -236,34 +234,28 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 						t := time.Now()
 						warn, err := query(ctx, l, q, opts)
 						duration := time.Since(t).Seconds()
-						queryType := labelQuery
-						if q.Duration > 0 {
-							if q.Query != "" {
-								queryType = labelQueryRange
-							} else if len(q.Matchers) > 0 {
-								queryType = labelSeries
-							}
-						}
+						queryType := q.GetType()
+						name := q.GetName()
 						if err != nil {
 							level.Info(l).Log(
 								"msg", "failed to execute specified query",
 								"type", queryType,
-								"name", q.Name,
+								"name", name,
 								"duration", duration,
 								"warnings", fmt.Sprintf("%#+v", warn),
 								"err", err,
 							)
-							m.CustomQueryErrors.WithLabelValues(queryType, q.Name).Inc()
+							m.CustomQueryErrors.WithLabelValues(queryType, name).Inc()
 						} else {
 							level.Debug(l).Log("msg", "successfully executed specified query",
 								"type", queryType,
-								"name", q.Name,
+								"name", name,
 								"duration", duration,
 								"warnings", fmt.Sprintf("%#+v", warn),
 							)
-							m.CustomQueryLastDuration.WithLabelValues(queryType, q.Name).Set(duration)
+							m.CustomQueryLastDuration.WithLabelValues(queryType, name).Set(duration)
 						}
-						m.CustomQueryExecuted.WithLabelValues(queryType, q.Name).Inc()
+						m.CustomQueryExecuted.WithLabelValues(queryType, name).Inc()
 					}
 					time.Sleep(timeoutBetweenQueries)
 				}
@@ -523,7 +515,7 @@ func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName s
 			return fmt.Errorf("--queries-file is invalid: %w", err)
 		}
 
-		qf := queriesFile{}
+		qf := callsFile{}
 		err = yaml.Unmarshal(b, &qf)
 
 		if err != nil {
@@ -534,22 +526,33 @@ func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName s
 
 		// validate queries
 		for _, q := range qf.Queries {
-			if len(q.Matchers) > 0 {
-				for _, s := range q.Matchers {
-					if _, err := parser.ParseMetricSelector(s); err != nil {
-						return fmt.Errorf("query %q in --queries-file matchers are invalid: %w", q.Name, err)
-					}
-				}
-				continue
-			}
-
 			_, err = parser.ParseExpr(q.Query)
 			if err != nil {
 				return fmt.Errorf("query %q in --queries-file content is invalid: %w", q.Name, err)
 			}
+			opts.Queries = append(opts.Queries, q)
 		}
 
-		opts.Queries = qf.Queries
+		for _, q := range qf.Series {
+			if len(q.Matchers) == 0 {
+				return fmt.Errorf("series query %q in --queries-file matchers cannot be empty", q.Name)
+			}
+			if len(q.Matchers) > 0 {
+				for _, s := range q.Matchers {
+					if _, err := parser.ParseMetricSelector(s); err != nil {
+						return fmt.Errorf("series query %q in --queries-file matchers are invalid: %w", q.Name, err)
+					}
+				}
+			}
+			opts.Queries = append(opts.Queries, q)
+		}
+
+		for _, q := range qf.Labels {
+			if len(q.Label) > 0 && !model.LabelNameRE.MatchString(q.Label) {
+				return fmt.Errorf("label_values query %q in --queries-file label is invalid: %w", q.Name, err)
+			}
+			opts.Queries = append(opts.Queries, q)
+		}
 	}
 
 	return nil
