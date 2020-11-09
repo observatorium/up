@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: blackbox-prober
+    app.kubernetes.io/instance: observatorium-up
+    app.kubernetes.io/name: observatorium-up
+    app.kubernetes.io/version: master-2020-06-03-8a20b4e
+  name: observatorium-up
+  namespace: observatorium
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: blackbox-prober
+      app.kubernetes.io/instance: observatorium-up
+      app.kubernetes.io/name: observatorium-up
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: blackbox-prober
+        app.kubernetes.io/instance: observatorium-up
+        app.kubernetes.io/name: observatorium-up
+        app.kubernetes.io/version: master-2020-06-03-8a20b4e
+    spec:
+      containers:
+      - args:
+        - --duration=0
+        - --log.level=debug
+        - --endpoint-type=metrics
+        - --endpoint-read=http://FAKE.svc.cluster.local:8080/api/metrics/v1/test/api/v1/query
+        - --endpoint-write=http://FAKE.svc.cluster.local:8080/api/metrics/v1/test/api/v1/receive
+        image: quay.io/observatorium/up:master-2020-06-03-8a20b4e
+        name: observatorium-up
+        ports:
+        - containerPort: 8080
+          name: http
+        resources: {}
+        volumeMounts: []
+      volumes: []

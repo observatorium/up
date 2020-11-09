@@ -1,0 +1,64 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    app.kubernetes.io/component: test
+    app.kubernetes.io/instance: observatorium-up
+    app.kubernetes.io/name: observatorium-up
+    app.kubernetes.io/version: master-2020-06-03-8a20b4e
+  name: observatorium-up
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: test
+        app.kubernetes.io/instance: observatorium-up
+        app.kubernetes.io/name: observatorium-up
+        app.kubernetes.io/version: master-2020-06-03-8a20b4e
+    spec:
+      containers:
+      - args:
+        - --endpoint-type=metrics
+        - --endpoint-write=http://FAKE.svc.cluster.local:8080/api/metrics/v1/test/api/v1/receive
+        - --endpoint-read=http://FAKE.svc.cluster.local:8080/api/metrics/v1/test/api/v1/query
+        - --period=1s
+        - --duration=2m
+        - --name=foo
+        - --labels=bar="baz"
+        - --latency=10s
+        - --initial-query-delay=5s
+        - --threshold=0.90
+        - --token-file=/var/shared/token
+        image: quay.io/observatorium/up:master-2020-06-03-8a20b4e
+        name: observatorium-up
+        volumeMounts:
+        - mountPath: /var/shared
+          name: shared
+          readOnly: true
+      initContainers:
+      - command:
+        - /bin/sh
+        - -c
+        - |
+          curl --request POST \
+              --silent \
+              --url http://FAKE.svc.cluster.local:%d/dex/token \
+              --header 'content-type: application/x-www-form-urlencoded' \
+              --data grant_type=password \
+              --data username=admin@example.com \
+              --data password=password \
+              --data client_id=test \
+              --data client_secret=ZXhhbXBsZS1hcHAtc2VjcmV0 \
+              --data scope="openid email" | sed 's/^{.*"id_token":[^"]*"\([^"]*\)".*}/\1/' > /var/shared/token
+        image: docker.io/curlimages/curl
+        name: curl
+      resources: {}
+      restartPolicy: OnFailure
+      volumeMounts:
+      - mountPath: /var/shared
+        name: shared
+        readOnly: false
+      volumes:
+      - emptyDir: {}
+        name: shared
