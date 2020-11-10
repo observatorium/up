@@ -6,9 +6,9 @@ LOKI ?= $(BIN_DIR)/loki
 LOKI_VERSION ?= 1.5.0
 
 EXAMPLES := examples
-MANIFESTS := ${EXAMPLES}/manifests/
+MANIFESTS := ${EXAMPLES}/manifests
 
-all: build generate
+all: build generate validate
 
 build: up
 
@@ -18,6 +18,10 @@ up: go-vendor
 
 .PHONY: generate
 generate: jsonnet-vendor jsonnet-fmt ${MANIFESTS} README.md
+
+.PHONY: validate
+validate: $(KUBEVAL) $(MANIFESTS)
+	$(KUBEVAL) --ignore-missing-schemas $(MANIFESTS)/*.yaml
 
 .PHONY: go-vendor
 go-vendor: go.mod go.sum
@@ -68,6 +72,14 @@ ${MANIFESTS}: jsonnet/main.jsonnet jsonnet/lib/* $(JSONNET) $(GOJSONTOYAML)
 .PHONY: jsonnet-fmt
 jsonnet-fmt: $(JSONNETFMT)
 	@echo ${JSONNET_SRC} | xargs -n 1 -- $(JSONNETFMT) -n 2 --max-blank-lines 2 --string-style s --comment-style s -i
+
+JSONNET_SRC = $(shell find . -name 'vendor' -prune -o -name 'examples/vendor' -prune -o -name 'tmp' -prune -o -name '*.libsonnet' -print -o -name '*.jsonnet' -print)
+JSONNETFMT_CMD := $(JSONNETFMT) -n 2 --max-blank-lines 2 --string-style s --comment-style s
+
+.PHONY: jsonnet-fmt
+jsonnet-fmt: | $(JSONNETFMT)
+	PATH=$$PATH:$(BIN_DIR):$(FIRST_GOPATH)/bin echo ${JSONNET_SRC} | xargs -n 1 -- $(JSONNETFMT_CMD) -i
+
 
 .PHONY: vendor
 vendor: go-vendor jsonnet-vendor
