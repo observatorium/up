@@ -5,7 +5,10 @@ THANOS=$(BIN_DIR)/thanos
 LOKI ?= $(BIN_DIR)/loki
 LOKI_VERSION ?= 1.5.0
 
-all: build
+EXAMPLES := examples
+MANIFESTS := ${EXAMPLES}/manifests
+
+all: build generate validate
 
 build: up
 
@@ -13,14 +16,17 @@ build: up
 up: vendor
 	CGO_ENABLED=0 go build -v -ldflags '-w -extldflags '-static'' ./cmd/up
 
+.PHONY: generate
+generate: jsonnet-fmt ${MANIFESTS} README.md
+
+.PHONY: validate
+validate: $(KUBEVAL) $(MANIFESTS)
+	$(KUBEVAL) --ignore-missing-schemas $(MANIFESTS)/*.yaml
+
 .PHONY: vendor
 vendor: go.mod go.sum
 	go mod tidy
 	go mod vendor
-
-.PHONY: format
-format: $(GOLANGCI_LINT) go-fmt
-	$(GOLANGCI_LINT) run --fix -c .golangci.yml
 
 .PHONY: go-fmt
 go-fmt:
@@ -49,6 +55,29 @@ README.md: $(EMBEDMD) tmp/help.txt
 .PHONY: test-integration
 test-integration: build test/integration.sh | $(THANOS) $(LOKI)
 	PATH=$$PATH:$$(pwd)/$(BIN_DIR) ./test/integration.sh
+
+JSONNET_SRC = $(shell find . -name 'vendor' -prune -o -name '*.libsonnet' -print -o -name '*.jsonnet' -print)
+
+.PHONY: ${MANIFESTS}
+${MANIFESTS}: jsonnet/main.jsonnet jsonnet/*.libsonnet $(JSONNET) $(GOJSONTOYAML)
+	@rm -rf ${MANIFESTS}
+	@mkdir -p ${MANIFESTS}
+	$(JSONNET) -J jsonnet/vendor -m ${MANIFESTS} jsonnet/main.jsonnet | xargs -I{} sh -c 'cat {} | $(GOJSONTOYAML) > {}.yaml && rm -f {}' -- {}
+
+.PHONY: jsonnet-fmt
+jsonnet-fmt: $(JSONNETFMT)
+	@echo ${JSONNET_SRC} | xargs -n 1 -- $(JSONNETFMT) -n 2 --max-blank-lines 2 --string-style s --comment-style s -i
+
+JSONNET_SRC = $(shell find . -name 'vendor' -prune -o -name 'examples/vendor' -prune -o -name 'tmp' -prune -o -name '*.libsonnet' -print -o -name '*.jsonnet' -print)
+JSONNETFMT_CMD := $(JSONNETFMT) -n 2 --max-blank-lines 2 --string-style s --comment-style s
+
+.PHONY: jsonnet-fmt
+jsonnet-fmt: | $(JSONNETFMT)
+	PATH=$$PATH:$(BIN_DIR):$(FIRST_GOPATH)/bin echo ${JSONNET_SRC} | xargs -n 1 -- $(JSONNETFMT_CMD) -i
+
+.PHONY: format
+format: $(GOLANGCI_LINT) go-fmt jsonnet-fmt
+	$(GOLANGCI_LINT) run --fix -c .golangci.yml
 
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)

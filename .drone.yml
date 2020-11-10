@@ -40,12 +40,13 @@ steps:
   pull: always
   image: golang:1.14
   commands:
-    - make README.md
+    - make generate --always-make
     - git diff --exit-code
   environment:
     CGO_ENABLED: 0
     GO111MODULE: on
     GOPROXY: https://proxy.golang.org
+
 
 - name: tags
   image: golang:1.14
