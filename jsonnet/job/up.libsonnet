@@ -78,6 +78,9 @@ function(params) {
           up.config.getToken.clientSecret,
         ],
       ],
+      volumeMounts: [
+        { name: 'shared', mountPath: '/var/shared', readOnly: false },
+      ],
     };
     local c = {
       name: 'observatorium-up',
@@ -101,8 +104,8 @@ function(params) {
         (if up.config.tls != {} then [{ name: 'tls', mountPath: '/mnt/tls', readOnly: true }] else []) +
         (if up.config.getToken != {} then [{ name: 'shared', mountPath: '/var/shared', readOnly: true }] else []) +
         (if up.config.sendLogs != {} then [{ name: 'logs-file', mountPath: '/var/logs-file', readOnly: true }] else []),
+      resources: if up.config.resources != {} then up.config.resources else {},
     };
-
     {
       apiVersion: 'batch/v1',
       kind: 'Job',
@@ -120,16 +123,12 @@ function(params) {
             initContainers+:
               (if up.config.getToken != {} then [curl] else []) +
               (if up.config.sendLogs != {} then [bash] else []),
-            volumeMounts: [
-              { name: 'shared', mountPath: '/var/shared', readOnly: false },
-            ],
             containers: [c],
             restartPolicy: 'OnFailure',
             volumes:
               (if up.config.tls != {} then [{ configMap: { name: up.config.tls.configMapName }, name: 'tls' }] else []) +
               (if up.config.getToken != {} then [{ emptyDir: {}, name: 'shared' }] else []) +
               (if up.config.sendLogs != {} then [{ emptyDir: {}, name: 'logs-file' }] else []),
-            resources: if up.config.resources != {} then up.config.resources else {},
           },
         },
       },

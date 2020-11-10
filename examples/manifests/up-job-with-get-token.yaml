@@ -32,6 +32,7 @@ spec:
         - --token-file=/var/shared/token
         image: quay.io/observatorium/up:master-2020-06-03-8a20b4e
         name: observatorium-up
+        resources: {}
         volumeMounts:
         - mountPath: /var/shared
           name: shared
@@ -53,12 +54,11 @@ spec:
               --data scope="openid email" | sed 's/^{.*"id_token":[^"]*"\([^"]*\)".*}/\1/' > /var/shared/token
         image: docker.io/curlimages/curl
         name: curl
-      resources: {}
+        volumeMounts:
+        - mountPath: /var/shared
+          name: shared
+          readOnly: false
       restartPolicy: OnFailure
-      volumeMounts:
-      - mountPath: /var/shared
-        name: shared
-        readOnly: false
       volumes:
       - emptyDir: {}
         name: shared

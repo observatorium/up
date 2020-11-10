@@ -83,11 +83,9 @@ function(params) {
         { name: port.name, containerPort: port.port }
         for port in up.service.spec.ports
       ],
-      volumeMounts: if up.config.queryConfig != {} then [{
-        mountPath: '/etc/up/',
-        name: 'query-config',
-        readOnly: false,
-      }] else [],
+      volumeMounts: if up.config.queryConfig != {} then [
+        { mountPath: '/etc/up/', name: 'query-config', readOnly: false },
+      ] else [],
       resources: if up.config.resources != {} then up.config.resources else {},
     };
 
