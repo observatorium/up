@@ -31,12 +31,8 @@ spec:
         - --threshold=0.90
         image: quay.io/observatorium/up:master-2020-06-03-8a20b4e
         name: observatorium-up
+        resources: {}
         volumeMounts: []
       initContainers: []
-      resources: {}
       restartPolicy: OnFailure
-      volumeMounts:
-      - mountPath: /var/shared
-        name: shared
-        readOnly: false
       volumes: []

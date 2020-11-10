@@ -32,6 +32,7 @@ spec:
         - --logs-file=/var/logs-file/logs.yaml
         image: quay.io/observatorium/up:master-2020-06-03-8a20b4e
         name: observatorium-up
+        resources: {}
         volumeMounts:
         - mountPath: /var/logs-file
           name: logs-file
@@ -51,12 +52,7 @@ spec:
         - mountPath: /var/logs-file
           name: logs-file
           readOnly: false
-      resources: {}
       restartPolicy: OnFailure
-      volumeMounts:
-      - mountPath: /var/shared
-        name: shared
-        readOnly: false
       volumes:
       - emptyDir: {}
         name: logs-file
