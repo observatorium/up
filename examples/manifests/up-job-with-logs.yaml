@@ -36,7 +36,21 @@ spec:
         - mountPath: /var/logs-file
           name: logs-file
           readOnly: true
-      initContainers: []
+      initContainers:
+      - command:
+        - /bin/sh
+        - -c
+        - |
+          cat > /var/logs-file/logs.yaml << EOF
+          spec:
+            logs: [ [ "$(date '+%s%N')", "log line"] ]
+          EOF
+        image: docker.io/debian
+        name: logs-file
+        volumeMounts:
+        - mountPath: /var/logs-file
+          name: logs-file
+          readOnly: false
       resources: {}
       restartPolicy: OnFailure
       volumeMounts:

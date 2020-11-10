@@ -117,7 +117,9 @@ function(params) {
             labels: up.config.commonLabels,
           },
           spec: {
-            initContainers+: if up.config.getToken != {} then [curl] else [],
+            initContainers+:
+              (if up.config.getToken != {} then [curl] else []) +
+              (if up.config.sendLogs != {} then [bash] else []),
             volumeMounts: [
               { name: 'shared', mountPath: '/var/shared', readOnly: false },
             ],
