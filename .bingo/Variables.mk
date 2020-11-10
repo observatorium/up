@@ -34,12 +34,6 @@ $(GOLANGCI_LINT): .bingo/golangci-lint.mod
 	@echo "(re)installing $(GOBIN)/golangci-lint-v1.30.0"
 	@cd .bingo && $(GO) build -mod=mod -modfile=golangci-lint.mod -o=$(GOBIN)/golangci-lint-v1.30.0 "github.com/golangci/golangci-lint/cmd/golangci-lint"
 
-JB := $(GOBIN)/jb-v0.4.0
-$(JB): .bingo/jb.mod
-	@# Install binary/ries using Go 1.14+ build command. This is using bwplotka/bingo-controlled, separate go module with pinned dependencies.
-	@echo "(re)installing $(GOBIN)/jb-v0.4.0"
-	@cd .bingo && $(GO) build -mod=mod -modfile=jb.mod -o=$(GOBIN)/jb-v0.4.0 "github.com/jsonnet-bundler/jsonnet-bundler/cmd/jb"
-
 JSONNET := $(GOBIN)/jsonnet-v0.16.0
 $(JSONNET): .bingo/jsonnet.mod
 	@# Install binary/ries using Go 1.14+ build command. This is using bwplotka/bingo-controlled, separate go module with pinned dependencies.

@@ -10,9 +10,9 @@ local commonConfig = {
   readEndpoint: 'http://FAKE.svc.cluster.local:8080/api/metrics/v1/test/api/v1/query',
 };
 
-local up = (import 'lib/up.libsonnet')(commonConfig);
-local job = (import 'lib/job/up.libsonnet')(commonConfig { backoffLimit: 5 });
-local jobWithGetToken = (import 'lib/job/up.libsonnet')(commonConfig {
+local up = (import 'up.libsonnet')(commonConfig);
+local job = (import 'job/up.libsonnet')(commonConfig { backoffLimit: 5 });
+local jobWithGetToken = (import 'job/up.libsonnet')(commonConfig {
   backoffLimit: 5,
   getToken: {
     image: 'docker.io/curlimages/curl',
@@ -23,7 +23,7 @@ local jobWithGetToken = (import 'lib/job/up.libsonnet')(commonConfig {
     clientSecret: 'ZXhhbXBsZS1hcHAtc2VjcmV0',
   },
 });
-local jobWithLogs = (import 'lib/job/up.libsonnet')(commonConfig {
+local jobWithLogs = (import 'job/up.libsonnet')(commonConfig {
   backoffLimit: 5,
   sendLogs: {
     // Note: Keep debian here because we need coreutils' date

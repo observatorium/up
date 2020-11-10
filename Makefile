@@ -13,18 +13,18 @@ all: build generate validate
 build: up
 
 .PHONY: up
-up: go-vendor
+up: vendor
 	CGO_ENABLED=0 go build -v -ldflags '-w -extldflags '-static'' ./cmd/up
 
 .PHONY: generate
-generate: jsonnet-vendor jsonnet-fmt ${MANIFESTS} README.md
+generate: jsonnet-fmt ${MANIFESTS} README.md
 
 .PHONY: validate
 validate: $(KUBEVAL) $(MANIFESTS)
 	$(KUBEVAL) --ignore-missing-schemas $(MANIFESTS)/*.yaml
 
-.PHONY: go-vendor
-go-vendor: go.mod go.sum
+.PHONY: vendor
+vendor: go.mod go.sum
 	go mod tidy
 	go mod vendor
 
@@ -58,13 +58,8 @@ test-integration: build test/integration.sh | $(THANOS) $(LOKI)
 
 JSONNET_SRC = $(shell find . -name 'vendor' -prune -o -name '*.libsonnet' -print -o -name '*.jsonnet' -print)
 
-.PHONY: jsonnet-vendor
-jsonnet-vendor: jsonnet/jsonnetfile.json $(JB)
-	rm -rf jsonnet/vendor
-	cd jsonnet && $(JB) install
-
 .PHONY: ${MANIFESTS}
-${MANIFESTS}: jsonnet/main.jsonnet jsonnet/lib/* $(JSONNET) $(GOJSONTOYAML)
+${MANIFESTS}: jsonnet/main.jsonnet jsonnet/*.libsonnet $(JSONNET) $(GOJSONTOYAML)
 	@rm -rf ${MANIFESTS}
 	@mkdir -p ${MANIFESTS}
 	$(JSONNET) -J jsonnet/vendor -m ${MANIFESTS} jsonnet/main.jsonnet | xargs -I{} sh -c 'cat {} | $(GOJSONTOYAML) > {}.yaml && rm -f {}' -- {}
@@ -79,10 +74,6 @@ JSONNETFMT_CMD := $(JSONNETFMT) -n 2 --max-blank-lines 2 --string-style s --comm
 .PHONY: jsonnet-fmt
 jsonnet-fmt: | $(JSONNETFMT)
 	PATH=$$PATH:$(BIN_DIR):$(FIRST_GOPATH)/bin echo ${JSONNET_SRC} | xargs -n 1 -- $(JSONNETFMT_CMD) -i
-
-
-.PHONY: vendor
-vendor: go-vendor jsonnet-vendor
 
 .PHONY: format
 format: $(GOLANGCI_LINT) go-fmt jsonnet-fmt
