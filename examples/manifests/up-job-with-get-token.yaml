@@ -44,6 +44,7 @@ spec:
         - |
           curl --request POST \
               --silent \
+               \
               --url http://FAKE.svc.cluster.local:%d/dex/token \
               --header 'content-type: application/x-www-form-urlencoded' \
               --data grant_type=password \

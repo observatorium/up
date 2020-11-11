@@ -62,6 +62,7 @@ function(params) {
         |||
           curl --request POST \
               --silent \
+              %s \
               --url %s \
               --header 'content-type: application/x-www-form-urlencoded' \
               --data grant_type=password \
@@ -71,6 +72,7 @@ function(params) {
               --data client_secret=%s \
               --data scope="openid email" | sed 's/^{.*"id_token":[^"]*"\([^"]*\)".*}/\1/' > /var/shared/token
         ||| % [
+          (if std.objectHas(up.config.getToken, 'oidc') then '--cacert /mnt/oidc-tls/%s' % [up.config.getToken.oidc.caKey] else ''),
           up.config.getToken.endpoint,
           up.config.getToken.username,
           up.config.getToken.password,
@@ -78,9 +80,9 @@ function(params) {
           up.config.getToken.clientSecret,
         ],
       ],
-      volumeMounts: [
-        { name: 'shared', mountPath: '/var/shared', readOnly: false },
-      ],
+      volumeMounts:
+        [{ name: 'shared', mountPath: '/var/shared', readOnly: false }] +
+        (if std.objectHas(up.config.getToken, 'oidc') then [{ name: 'oidc-tls', mountPath: '/mnt/oidc-tls', readOnly: true }] else []),
     };
     local c = {
       name: 'observatorium-up',
@@ -128,7 +130,8 @@ function(params) {
             volumes:
               (if up.config.tls != {} then [{ configMap: { name: up.config.tls.configMapName }, name: 'tls' }] else []) +
               (if up.config.getToken != {} then [{ emptyDir: {}, name: 'shared' }] else []) +
-              (if up.config.sendLogs != {} then [{ emptyDir: {}, name: 'logs-file' }] else []),
+              (if up.config.sendLogs != {} then [{ emptyDir: {}, name: 'logs-file' }] else []) +
+              (if std.objectHas(up.config.getToken, 'oidc') then [{ configMap: { name: up.config.getToken.oidc.configMapName }, name: 'oidc-tls' }] else []),
           },
         },
       },
