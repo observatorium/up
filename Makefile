@@ -56,17 +56,11 @@ README.md: $(EMBEDMD) tmp/help.txt
 test-integration: build test/integration.sh | $(THANOS) $(LOKI)
 	PATH=$$PATH:$$(pwd)/$(BIN_DIR) ./test/integration.sh
 
-JSONNET_SRC = $(shell find . -name 'vendor' -prune -o -name '*.libsonnet' -print -o -name '*.jsonnet' -print)
-
 .PHONY: ${MANIFESTS}
 ${MANIFESTS}: jsonnet/main.jsonnet jsonnet/*.libsonnet $(JSONNET) $(GOJSONTOYAML)
 	@rm -rf ${MANIFESTS}
 	@mkdir -p ${MANIFESTS}
 	$(JSONNET) -J jsonnet/vendor -m ${MANIFESTS} jsonnet/main.jsonnet | xargs -I{} sh -c 'cat {} | $(GOJSONTOYAML) > {}.yaml && rm -f {}' -- {}
-
-.PHONY: jsonnet-fmt
-jsonnet-fmt: $(JSONNETFMT)
-	@echo ${JSONNET_SRC} | xargs -n 1 -- $(JSONNETFMT) -n 2 --max-blank-lines 2 --string-style s --comment-style s -i
 
 JSONNET_SRC = $(shell find . -name 'vendor' -prune -o -name 'examples/vendor' -prune -o -name 'tmp' -prune -o -name '*.libsonnet' -print -o -name '*.jsonnet' -print)
 JSONNETFMT_CMD := $(JSONNETFMT) -n 2 --max-blank-lines 2 --string-style s --comment-style s
