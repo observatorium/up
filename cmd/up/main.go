@@ -176,7 +176,7 @@ func main() {
 func write(ctx context.Context, l log.Logger, opts options.Options) error {
 	switch opts.EndpointType {
 	case options.MetricsEndpointType:
-		return metrics.Write(ctx, opts.WriteEndpoint, opts.Token, metrics.Generate(opts.Labels), l, opts.TLS)
+		return metrics.Write(ctx, opts.WriteEndpoint, opts.Token, metrics.Generate(opts.Labels), l, opts.TLS, opts.RemoteTenantHeader, opts.RemoteTenant)
 	case options.LogsEndpointType:
 		return logs.Write(ctx, opts.WriteEndpoint, opts.Token, logs.Generate(opts.Labels, opts.Logs), l, opts.TLS)
 	}
@@ -390,6 +390,8 @@ func parseFlags(l log.Logger) (options.Options, error) {
 		"File containing the default x509 private key matching --tls-cert-file. Leave blank to disable TLS.")
 	flag.StringVar(&opts.TLS.CACert, "tls-ca-file", "",
 		"File containing the TLS CA to use against servers for verification. If no CA is specified, there won't be any verification.")
+	flag.StringVar(&opts.RemoteTenantHeader, "remote-tenant-header", "tenant_id", "HTTP header to determine tenant for write requests.")
+	flag.StringVar(&opts.RemoteTenant, "remote-tenant", "", "Default tenant ID to use when none is provided via a header.")
 	flag.Parse()
 
 	return buildOptionsFromFlags(
