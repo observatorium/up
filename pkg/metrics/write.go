@@ -19,7 +19,8 @@ import (
 )
 
 // Write executes a remote-write against Prometheus sending a set of labels and metrics to store.
-func Write(ctx context.Context, endpoint *url.URL, t auth.TokenProvider, wreq proto.Message, l log.Logger, tls options.TLS, remoteTenantHeader string, remoteTenant string) error {
+func Write(ctx context.Context, endpoint *url.URL, t auth.TokenProvider, wreq proto.Message, l log.Logger, tls options.TLS,
+	remoteTenantHeader string, remoteTenant string) error {
 	var (
 		buf []byte
 		err error
