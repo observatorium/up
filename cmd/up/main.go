@@ -391,8 +391,8 @@ func parseFlags(l log.Logger) (options.Options, error) {
 		"File containing the default x509 private key matching --tls-cert-file. Leave blank to disable TLS.")
 	flag.StringVar(&opts.TLS.CACert, "tls-ca-file", "",
 		"File containing the TLS CA to use against servers for verification. If no CA is specified, there won't be any verification.")
-	flag.StringVar(&opts.RemoteTenantHeader, "remote-tenant-header", "tenant_id", "HTTP header to determine tenant for write requests.")
-	flag.StringVar(&opts.RemoteTenant, "remote-tenant", "", "Default tenant ID to use when none is provided via a header.")
+	flag.StringVar(&opts.RemoteTenantHeader, "remote-tenant-header", "tenant_id", "Name of HTTP header used to determine tenant for write requests.")
+	flag.StringVar(&opts.RemoteTenant, "remote-tenant", "", "Tenant ID to used to determine tenant for write requests.")
 	flag.Parse()
 
 	return buildOptionsFromFlags(
