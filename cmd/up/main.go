@@ -176,7 +176,8 @@ func main() {
 func write(ctx context.Context, l log.Logger, opts options.Options) error {
 	switch opts.EndpointType {
 	case options.MetricsEndpointType:
-		return metrics.Write(ctx, opts.WriteEndpoint, opts.Token, metrics.Generate(opts.Labels), l, opts.TLS, opts.RemoteTenantHeader, opts.RemoteTenant)
+		return metrics.Write(ctx, opts.WriteEndpoint, opts.Token, metrics.Generate(opts.Labels), l, opts.TLS,
+			opts.RemoteTenantHeader, opts.RemoteTenant)
 	case options.LogsEndpointType:
 		return logs.Write(ctx, opts.WriteEndpoint, opts.Token, logs.Generate(opts.Labels, opts.Logs), l, opts.TLS)
 	}
