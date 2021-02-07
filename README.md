@@ -63,6 +63,10 @@ Usage of ./up:
     	The time to wait between remote-write requests. (default 5s)
   -queries-file string
     	A file containing queries to run against the read endpoint.
+  -remote-tenant string
+    	Tenant ID to used to determine tenant for write requests.
+  -remote-tenant-header string
+    	Name of HTTP header used to determine tenant for write requests. (default "tenant_id")
   -step duration
     	Default step duration for range queries. Can be overridden if step is set in query spec. (default 5m0s)
   -threshold float
