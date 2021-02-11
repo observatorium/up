@@ -393,7 +393,7 @@ func parseFlags(l log.Logger) (options.Options, error) {
 		"File containing the TLS CA to use against servers for verification. If no CA is specified, there won't be any verification.")
 	flag.StringVar(&opts.RemoteTenantHeader, "remote-tenant-header", "tenant_id",
 		"Name of HTTP header used to determine tenant for write requests.")
-	flag.StringVar(&opts.RemoteTenant, "remote-tenant", "", "Tenant ID to used to determine tenant for write requests.")
+	flag.StringVar(&opts.Tenant, "tenant", "", "Tenant ID to used to determine tenant for write requests.")
 	flag.Parse()
 
 	return buildOptionsFromFlags(
