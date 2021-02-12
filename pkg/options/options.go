@@ -38,7 +38,7 @@ type Options struct {
 	TLS                TLS
 	DefaultStep        time.Duration
 	tenant       string
-	TenantHeader string
+	tenantHeader string
 }
 
 type EndpointType string
