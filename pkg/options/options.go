@@ -37,7 +37,7 @@ type Options struct {
 	SuccessThreshold   float64
 	TLS                TLS
 	DefaultStep        time.Duration
-	RemoteTenant       string
+	tenant       string
 	TenantHeader string
 }
 

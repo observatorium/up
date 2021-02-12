@@ -20,7 +20,7 @@ import (
 
 // Write executes a remote-write against Prometheus sending a set of labels and metrics to store.
 func Write(ctx context.Context, endpoint *url.URL, t auth.TokenProvider, wreq proto.Message, l log.Logger, tls options.TLS,
-	remoteTenantHeader string, remoteTenant string) error {
+	tenantHeader string, tenant string) error {
 	var (
 		buf []byte
 		err error
@@ -59,8 +59,8 @@ func Write(ctx context.Context, endpoint *url.URL, t auth.TokenProvider, wreq pr
 		req.Header.Add("Authorization", "Bearer "+token)
 	}
 
-	if remoteTenant != "" {
-		req.Header.Add(remoteTenantHeader, remoteTenant)
+	if tenant != "" {
+		req.Header.Add(tenantHeader, tenant)
 	}
 
 	res, err = client.Do(req.WithContext(ctx)) //nolint:bodyclose
