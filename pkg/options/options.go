@@ -20,25 +20,25 @@ type TLS struct {
 }
 
 type Options struct {
-	LogLevel           level.Option
-	EndpointType       EndpointType
-	WriteEndpoint      *url.URL
-	ReadEndpoint       *url.URL
-	Labels             labelArg
-	Logs               logs
-	Listen             string
-	Name               string
-	Token              auth.TokenProvider
-	Queries            []Query
-	Period             time.Duration
-	Duration           time.Duration
-	Latency            time.Duration
-	InitialQueryDelay  time.Duration
-	SuccessThreshold   float64
-	TLS                TLS
-	DefaultStep        time.Duration
-	Tenant			   string
-	TenantHeader 	   string
+	LogLevel          level.Option
+	EndpointType      EndpointType
+	WriteEndpoint     *url.URL
+	ReadEndpoint      *url.URL
+	Labels            labelArg
+	Logs              logs
+	Listen            string
+	Name              string
+	Token             auth.TokenProvider
+	Queries           []Query
+	Period            time.Duration
+	Duration          time.Duration
+	Latency           time.Duration
+	InitialQueryDelay time.Duration
+	SuccessThreshold  float64
+	TLS               TLS
+	DefaultStep       time.Duration
+	Tenant            string
+	TenantHeader      string
 }
 
 type EndpointType string
