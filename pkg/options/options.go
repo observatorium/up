@@ -37,6 +37,8 @@ type Options struct {
 	SuccessThreshold  float64
 	TLS               TLS
 	DefaultStep       time.Duration
+	Tenant            string
+	TenantHeader      string
 }
 
 type EndpointType string

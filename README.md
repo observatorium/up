@@ -65,6 +65,10 @@ Usage of ./up:
     	A file containing queries to run against the read endpoint.
   -step duration
     	Default step duration for range queries. Can be overridden if step is set in query spec. (default 5m0s)
+  -tenant string
+    	Tenant ID to used to determine tenant for write requests.
+  -tenant-header string
+    	Name of HTTP header used to determine tenant for write requests. (default "tenant_id")
   -threshold float
     	The percentage of successful requests needed to succeed overall. 0 - 1. (default 0.9)
   -tls-ca-file string
