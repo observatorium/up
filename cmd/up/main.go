@@ -245,7 +245,6 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 						duration := time.Since(t).Seconds()
 						queryType := q.GetType()
 						name := q.GetName()
-
 						if err != nil {
 							level.Info(l).Log(
 								"msg", "failed to execute specified query",
