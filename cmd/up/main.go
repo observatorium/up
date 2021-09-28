@@ -52,7 +52,7 @@ type logsFile struct {
 	Spec options.LogsSpec `yaml:"spec"`
 }
 
-func main() {
+func main() { //nolint:golint,funlen
 	l := log.WithPrefix(log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr)), "name", "up")
 	l = log.WithPrefix(l, "ts", log.DefaultTimestampUTC)
 	l = log.WithPrefix(l, "caller", log.DefaultCaller)
@@ -108,7 +108,11 @@ func main() {
 			level.Info(l).Log("msg", "starting the writer")
 
 			return runPeriodically(ctx, opts, m.RemoteWriteRequests, l, ch, func(rCtx context.Context) {
-				if err := write(rCtx, l, opts); err != nil {
+				t := time.Now()
+				err := write(rCtx, l, opts)
+				duration := time.Since(t).Seconds()
+				m.RemoteWriteRequestDuration.Observe(duration)
+				if err != nil {
 					m.RemoteWriteRequests.WithLabelValues(labelError).Inc()
 					level.Error(l).Log("msg", "failed to make request", "err", err)
 				} else {
@@ -136,7 +140,11 @@ func main() {
 			level.Info(l).Log("msg", "start querying", "type", opts.EndpointType)
 
 			return runPeriodically(ctx, opts, m.QueryResponses, l, ch, func(rCtx context.Context) {
-				if err := read(rCtx, l, m, opts); err != nil {
+				t := time.Now()
+				err := read(rCtx, l, m, opts)
+				duration := time.Since(t).Seconds()
+				m.QueryResponseDuration.Observe(duration)
+				if err != nil {
 					m.QueryResponses.WithLabelValues(labelError).Inc()
 					level.Error(l).Log("msg", "failed to query", "err", err)
 				} else {
@@ -257,6 +265,7 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 							m.CustomQueryLastDuration.WithLabelValues(queryType, name).Set(duration)
 						}
 						m.CustomQueryExecuted.WithLabelValues(queryType, name).Inc()
+						m.CustomQueryRequestDuration.WithLabelValues(queryType, name).Observe(duration)
 					}
 					time.Sleep(timeoutBetweenQueries)
 				}
