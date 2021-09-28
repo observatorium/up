@@ -52,7 +52,7 @@ type logsFile struct {
 	Spec options.LogsSpec `yaml:"spec"`
 }
 
-func main() {
+func main() { //nolint:golint,funlen
 	l := log.WithPrefix(log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr)), "name", "up")
 	l = log.WithPrefix(l, "ts", log.DefaultTimestampUTC)
 	l = log.WithPrefix(l, "caller", log.DefaultCaller)

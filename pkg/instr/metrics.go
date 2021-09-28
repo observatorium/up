@@ -32,8 +32,8 @@ func RegisterMetrics(reg *prometheus.Registry) Metrics {
 			Help: "The total number of queries made.",
 		}, []string{"result"}),
 		QueryResponseDuration: promauto.With(reg).NewHistogram(prometheus.HistogramOpts{
-			Name:        "up_queries_duration_seconds",
-			Help:        "Duration of up queries.",
+			Name: "up_queries_duration_seconds",
+			Help: "Duration of up queries.",
 		}),
 		MetricValueDifference: promauto.With(reg).NewHistogram(prometheus.HistogramOpts{
 			Name:    "up_metric_value_difference",
@@ -45,8 +45,8 @@ func RegisterMetrics(reg *prometheus.Registry) Metrics {
 			Help: "The total number of custom specified queries executed.",
 		}, []string{"type", "query"}),
 		CustomQueryRequestDuration: promauto.With(reg).NewHistogramVec(prometheus.HistogramOpts{
-			Name:        "up_custom_query_duration_seconds",
-			Help:        "Duration of custom specified queries",
+			Name: "up_custom_query_duration_seconds",
+			Help: "Duration of custom specified queries",
 			// We deliberately chose quite large buckets as we want to be able to accurately measure heavy queries.
 			Buckets: []float64{0.1, 0.25, 0.5, 1, 5, 10, 15, 20, 25, 30, 45, 60},
 		}, []string{"type", "query"}),
