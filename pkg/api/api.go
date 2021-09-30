@@ -38,6 +38,7 @@ const (
 	ErrServer      promapiv1.ErrorType = "server_error"
 	ErrClient      promapiv1.ErrorType = "client_error"
 
+	epQuery       = "/api/v1/query"
 	epQueryRange  = "/api/v1/query_range"
 	epSeries      = "/api/v1/series"
 	epLabels      = "/api/v1/labels"
@@ -208,7 +209,7 @@ func QueryRange(ctx context.Context, client promapi.Client, query string, r prom
 
 func Query(ctx context.Context, client promapi.Client, query string, ts time.Time,
 	cache bool) (model.Value, promapiv1.Warnings, error) {
-	u := client.URL("", nil)
+	u := client.URL(epQuery, nil)
 	q := u.Query()
 
 	q.Set("query", query)
