@@ -84,9 +84,7 @@ func (q QuerySpec) Run(ctx context.Context, c promapi.Client, logger log.Logger,
 		return warn, err
 	}
 
-	var res model.Value
-	a := promapiv1.NewAPI(c)
-	res, warn, err = a.Query(ctx, q.Query, time.Now())
+	res, warn, err := api.Query(ctx, c, q.Query, time.Now(), q.Cache)
 	if err != nil {
 		err = fmt.Errorf("querying: %w", err)
 		return warn, err

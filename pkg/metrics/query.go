@@ -38,8 +38,6 @@ func Query(
 	// Copy URL to avoid modifying the passed value.
 	u := new(url.URL)
 	*u = *endpoint
-	u.Path = ""
-
 	if u.Scheme == transport.HTTPS {
 		tp, err := transport.NewTLSTransport(l, tls)
 		if err != nil {
