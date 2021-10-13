@@ -271,12 +271,8 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 								"warnings", fmt.Sprintf("%#+v", warn),
 							)
 
-							if httpCode != 0 {
-								m.CustomQueryLastDuration.WithLabelValues(queryType, name, strconv.Itoa(httpCode)).Set(duration)
-							}
-
+							m.CustomQueryLastDuration.WithLabelValues(queryType, name, strconv.Itoa(httpCode)).Set(duration)
 						}
-
 						if httpCode != 0 {
 							m.CustomQueryExecuted.WithLabelValues(queryType, name, strconv.Itoa(httpCode)).Inc()
 							m.CustomQueryRequestDuration.WithLabelValues(queryType, name, strconv.Itoa(httpCode)).Observe(duration)
