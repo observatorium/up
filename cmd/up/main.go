@@ -400,7 +400,7 @@ func parseFlags(l log.Logger) (options.Options, error) {
 	flag.Float64Var(&opts.SuccessThreshold, "threshold", 0.9, "The percentage of successful requests needed to succeed overall. 0 - 1.")
 	flag.DurationVar(&opts.Latency, "latency", 15*time.Second,
 		"The maximum allowable latency between writing and reading.")
-	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second,
+	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 10*time.Second,
 		"The time to wait before executing the first query.")
 	flag.DurationVar(&opts.DefaultStep, "step", 5*time.Minute, "Default step duration for range queries. "+
 		"Can be overridden if step is set in query spec.")
