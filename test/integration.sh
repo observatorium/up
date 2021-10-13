@@ -38,7 +38,7 @@ sleep 10
 if ./up \
   --listen=0.0.0.0:8888 \
   --endpoint-type=metrics \
-  --endpoint-read=http://127.0.0.1:9091/api/v1/query \
+  --endpoint-read=http://127.0.0.1:9091 \
   --endpoint-write=http://127.0.0.1:19291/api/v1/receive \
   --period=500ms \
   --initial-query-delay=250ms \
