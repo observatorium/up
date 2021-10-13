@@ -38,6 +38,7 @@ const (
 	ErrServer      promapiv1.ErrorType = "server_error"
 	ErrClient      promapiv1.ErrorType = "client_error"
 
+	epQuery       = "/api/v1/query"
 	epQueryRange  = "/api/v1/query_range"
 	epSeries      = "/api/v1/series"
 	epLabels      = "/api/v1/labels"
@@ -51,6 +52,7 @@ func errorTypeAndMsgFor(resp *http.Response) (promapiv1.ErrorType, string) {
 	case 5:
 		return ErrServer, fmt.Sprintf("server error: %d", resp.StatusCode)
 	}
+
 	return ErrBadResponse, fmt.Sprintf("bad response code %d", resp.StatusCode)
 }
 
@@ -98,6 +100,7 @@ func (qr *queryResult) UnmarshalJSON(b []byte) error {
 	default:
 		err = fmt.Errorf("unexpected value type %q", v.Type)
 	}
+
 	return err
 }
 
@@ -119,6 +122,7 @@ func do(ctx context.Context, client promapi.Client, req *http.Request) (*http.Re
 
 	if code/100 != 2 && !apiError(code) {
 		errorType, errorMsg := errorTypeAndMsgFor(resp)
+
 		return resp, body, nil, &promapiv1.Error{
 			Type:   errorType,
 			Msg:    errorMsg,
@@ -166,67 +170,83 @@ func doGetFallback(
 	if err != nil {
 		return nil, nil, nil, err
 	}
+
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
 	if !cache {
 		req.Header.Set("Cache-Control", "no-store")
 	}
 
 	resp, data, warnings, err := do(ctx, client, req)
+
 	if resp != nil && resp.StatusCode == http.StatusMethodNotAllowed {
 		u.RawQuery = args.Encode()
 		req, err = http.NewRequest(http.MethodGet, u.String(), nil)
+
 		if err != nil {
 			return nil, nil, warnings, err
 		}
+
 		if !cache {
 			req.Header.Set("Cache-Control", "no-store")
 		}
+
 		return do(ctx, client, req)
 	}
+
 	return resp, data, warnings, err
 }
 
 func QueryRange(ctx context.Context, client promapi.Client, query string, r promapiv1.Range,
-	cache bool) (model.Value, promapiv1.Warnings, error) {
+	cache bool) (model.Value, int, promapiv1.Warnings, error) {
 	u := client.URL(epQueryRange, nil)
 	q := u.Query()
-
 	q.Set("query", query)
 	q.Set("start", formatTime(r.Start))
 	q.Set("end", formatTime(r.End))
 	q.Set("step", strconv.FormatFloat(r.Step.Seconds(), 'f', -1, 64))
 
-	_, data, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
+	resp, data, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
 	if err != nil {
-		return nil, warnings, err
+		if resp == nil {
+			return nil, 0, warnings, err
+		}
+		return nil, resp.StatusCode, warnings, err
 	}
 
 	var qres queryResult
 
-	return qres.v, warnings, json.Unmarshal(data, &qres)
+	return qres.v, resp.StatusCode, warnings, json.Unmarshal(data, &qres)
 }
 
 func Query(ctx context.Context, client promapi.Client, query string, ts time.Time,
-	cache bool) (model.Value, promapiv1.Warnings, error) {
-	u := client.URL("", nil)
+	cache bool) (model.Value, int, promapiv1.Warnings, error) {
+	u := client.URL(epQuery, nil)
 	q := u.Query()
 
 	q.Set("query", query)
+
 	if !ts.IsZero() {
 		q.Set("time", formatTime(ts))
 	}
 
-	_, data, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
+	resp, data, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
 	if err != nil {
-		return nil, warnings, err
+		if resp == nil {
+			// Unknown error.
+			return nil, 0, warnings, err
+		}
+
+		return nil, resp.StatusCode, warnings, err
 	}
 
 	var qres queryResult
-	return qres.v, warnings, json.Unmarshal(data, &qres)
+
+	return qres.v, resp.StatusCode, warnings, json.Unmarshal(data, &qres)
 }
 
 func Series(ctx context.Context, client promapi.Client, matches []string, startTime time.Time, endTime time.Time,
-	cache bool) ([]model.LabelSet, promapiv1.Warnings, error) {
+	cache bool) ([]model.LabelSet, int, promapiv1.Warnings, error) {
 	u := client.URL(epSeries, nil)
 	q := u.Query()
 
@@ -237,17 +257,21 @@ func Series(ctx context.Context, client promapi.Client, matches []string, startT
 	q.Set("start", formatTime(startTime))
 	q.Set("end", formatTime(endTime))
 
-	_, body, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
+	resp, body, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
 	if err != nil {
-		return nil, warnings, err
+		if resp == nil {
+			return nil, 0, warnings, err
+		}
+		return nil, resp.StatusCode, warnings, err
 	}
 
 	var mset []model.LabelSet
-	return mset, warnings, json.Unmarshal(body, &mset)
+
+	return mset, resp.StatusCode, warnings, json.Unmarshal(body, &mset)
 }
 
 func LabelNames(ctx context.Context, client promapi.Client, startTime time.Time, endTime time.Time,
-	cache bool) ([]string, promapiv1.Warnings, error) {
+	cache bool) ([]string, int, promapiv1.Warnings, error) {
 	u := client.URL(epLabels, nil)
 	q := u.Query()
 	q.Set("start", formatTime(startTime))
@@ -255,16 +279,26 @@ func LabelNames(ctx context.Context, client promapi.Client, startTime time.Time,
 
 	u.RawQuery = q.Encode()
 
-	_, body, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
+	resp, body, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
 	if err != nil {
-		return nil, warnings, err
+		if resp == nil {
+			return nil, 0, warnings, err
+		}
+		return nil, resp.StatusCode, warnings, err
 	}
+
 	var labelNames []string
-	return labelNames, warnings, json.Unmarshal(body, &labelNames)
+
+	if resp == nil {
+		// Unknown error.
+		return labelNames, 0, warnings, json.Unmarshal(body, &labelNames)
+	}
+
+	return labelNames, resp.StatusCode, warnings, json.Unmarshal(body, &labelNames)
 }
 
 func LabelValues(ctx context.Context, client promapi.Client, label string, startTime time.Time, endTime time.Time,
-	cache bool) (model.LabelValues, promapiv1.Warnings, error) {
+	cache bool) (model.LabelValues, int, promapiv1.Warnings, error) {
 	u := client.URL(epLabelValues, map[string]string{"name": label})
 	q := u.Query()
 	q.Set("start", formatTime(startTime))
@@ -272,12 +306,23 @@ func LabelValues(ctx context.Context, client promapi.Client, label string, start
 
 	u.RawQuery = q.Encode()
 
-	_, body, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
+	resp, body, warnings, err := doGetFallback(ctx, client, u, q, cache) //nolint:bodyclose
 	if err != nil {
-		return nil, warnings, err
+		if resp == nil {
+			// Unknown error.
+			return nil, 0, warnings, err
+		}
+
+		return nil, resp.StatusCode, warnings, err
 	}
+
 	var labelValues model.LabelValues
-	return labelValues, warnings, json.Unmarshal(body, &labelValues)
+	if resp == nil {
+		// Unknown error.
+		return labelValues, 0, warnings, json.Unmarshal(body, &labelValues)
+	}
+
+	return labelValues, resp.StatusCode, warnings, json.Unmarshal(body, &labelValues)
 }
 
 func formatTime(t time.Time) string {

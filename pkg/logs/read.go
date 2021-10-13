@@ -30,7 +30,7 @@ func Read(
 	m instr.Metrics,
 	l log.Logger,
 	tls options.TLS,
-) error {
+) (int, error) {
 	var (
 		rt  http.RoundTripper
 		err error
@@ -39,7 +39,7 @@ func Read(
 	if endpoint.Scheme == transport.HTTPS {
 		rt, err = transport.NewTLSTransport(l, tls)
 		if err != nil {
-			return errors.Wrap(err, "create round tripper")
+			return 0, errors.Wrap(err, "create round tripper")
 		}
 
 		rt = auth.NewBearerTokenRoundTripper(l, tp, rt)
@@ -62,37 +62,42 @@ func Read(
 
 	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		return errors.Wrap(err, "creating request")
+		return 0, errors.Wrap(err, "creating request")
 	}
 
 	res, err := client.Do(req.WithContext(ctx))
 	if err != nil {
-		return errors.Wrap(err, "making request")
+		if res == nil {
+			//Unknown error.
+			return 0, errors.Wrap(err, "making request")
+		}
+
+		return res.StatusCode, errors.Wrap(err, "making request")
 	}
 
 	if res.StatusCode != http.StatusOK {
 		err = errors.Errorf(res.Status)
-		return errors.Wrap(err, "non-200 status")
+		return res.StatusCode, errors.Wrap(err, "non-200 status")
 	}
 
 	defer res.Body.Close()
 
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return errors.Wrap(err, "reading response body")
+		return res.StatusCode, errors.Wrap(err, "reading response body")
 	}
 
 	rr := &queryResponse{}
 
 	err = json.Unmarshal(body, rr)
 	if err != nil {
-		return errors.Wrap(err, "unmarshalling response")
+		return res.StatusCode, errors.Wrap(err, "unmarshalling response")
 	}
 
 	rl := len(rr.Data.Result)
 	if rl != 1 {
-		return errors.Errorf("expected one log entry, got %d", rl)
+		return res.StatusCode, errors.Errorf("expected one log entry, got %d", rl)
 	}
 
-	return nil
+	return res.StatusCode, nil
 }
