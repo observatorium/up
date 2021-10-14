@@ -211,6 +211,7 @@ func QueryRange(ctx context.Context, client promapi.Client, query string, r prom
 		if resp == nil {
 			return nil, 0, warnings, err
 		}
+
 		return nil, resp.StatusCode, warnings, err
 	}
 
@@ -262,6 +263,7 @@ func Series(ctx context.Context, client promapi.Client, matches []string, startT
 		if resp == nil {
 			return nil, 0, warnings, err
 		}
+
 		return nil, resp.StatusCode, warnings, err
 	}
 
@@ -284,6 +286,7 @@ func LabelNames(ctx context.Context, client promapi.Client, startTime time.Time,
 		if resp == nil {
 			return nil, 0, warnings, err
 		}
+
 		return nil, resp.StatusCode, warnings, err
 	}
 

@@ -52,6 +52,7 @@ func (q QuerySpec) GetType() string {
 	if q.Duration > 0 {
 		return labelQueryRange
 	}
+
 	return labelQuery
 }
 
@@ -63,6 +64,7 @@ func (q QuerySpec) Run(ctx context.Context, c promapi.Client, logger log.Logger,
 		warn promapiv1.Warnings
 		err  error
 	)
+
 	if q.Duration > 0 {
 		step := defaultStep
 		if q.Step > 0 {
@@ -81,6 +83,7 @@ func (q QuerySpec) Run(ctx context.Context, c promapi.Client, logger log.Logger,
 
 		// Don't log response in range query case because there are a lot.
 		level.Debug(logger).Log("msg", "request finished", "name", q.Name, "trace-id", traceID)
+
 		return httpCode, warn, err
 	}
 
@@ -89,6 +92,7 @@ func (q QuerySpec) Run(ctx context.Context, c promapi.Client, logger log.Logger,
 		err = fmt.Errorf("querying: %w", err)
 		return httpCode, warn, err
 	}
+
 	level.Debug(logger).Log("msg", "request finished", "name", q.Name, "response code ", httpCode, "trace-id", traceID)
 
 	return httpCode, warn, err
@@ -107,6 +111,7 @@ func (q LabelSpec) GetType() string {
 	if len(q.Label) > 0 {
 		return labelValues
 	}
+
 	return labelNames
 }
 
@@ -119,11 +124,13 @@ func (q LabelSpec) Run(ctx context.Context, c promapi.Client, logger log.Logger,
 		err      error
 		httpCode int
 	)
+
 	if len(q.Label) > 0 {
 		_, httpCode, warn, err = api.LabelValues(ctx, c, q.Label, time.Now().Add(-time.Duration(q.Duration)), time.Now(), q.Cache)
 	} else {
 		_, httpCode, warn, err = api.LabelNames(ctx, c, time.Now().Add(-time.Duration(q.Duration)), time.Now(), q.Cache)
 	}
+
 	if err != nil {
 		err = fmt.Errorf("querying: %w", err)
 		return httpCode, warn, err
@@ -131,6 +138,7 @@ func (q LabelSpec) Run(ctx context.Context, c promapi.Client, logger log.Logger,
 
 	// Don't log responses because there are a lot.
 	level.Debug(logger).Log("msg", "request finished", "name", q.Name, "trace-id", traceID)
+
 	return httpCode, warn, err
 }
 
@@ -157,5 +165,6 @@ func (q SeriesSpec) Run(ctx context.Context, c promapi.Client, logger log.Logger
 
 	// Don't log responses because there are a lot.
 	level.Debug(logger).Log("msg", "request finished", "name", q.Name, "trace-id", traceID)
+
 	return httpCode, warn, err
 }

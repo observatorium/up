@@ -81,6 +81,7 @@ func Query(
 		if res == nil {
 			return 0, warn, errors.Wrap(err, "making request")
 		}
+
 		return res.StatusCode, warn, errors.Wrap(err, "making request")
 	}
 
