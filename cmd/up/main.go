@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -141,14 +142,18 @@ func main() { //nolint:golint,funlen
 
 			return runPeriodically(ctx, opts, m.QueryResponses, l, ch, func(rCtx context.Context) {
 				t := time.Now()
-				err := read(rCtx, l, m, opts)
+				httpCode, err := read(rCtx, l, m, opts)
 				duration := time.Since(t).Seconds()
 				m.QueryResponseDuration.Observe(duration)
 				if err != nil {
-					m.QueryResponses.WithLabelValues(labelError).Inc()
+					if httpCode != 0 {
+						m.QueryResponses.WithLabelValues(labelError, strconv.Itoa(httpCode)).Inc()
+					}
 					level.Error(l).Log("msg", "failed to query", "err", err)
 				} else {
-					m.QueryResponses.WithLabelValues(labelSuccess).Inc()
+					if httpCode != 0 {
+						m.QueryResponses.WithLabelValues(labelSuccess, strconv.Itoa(httpCode)).Inc()
+					}
 				}
 			})
 		}, func(_ error) {
@@ -193,7 +198,7 @@ func write(ctx context.Context, l log.Logger, opts options.Options) error {
 	return nil
 }
 
-func read(ctx context.Context, l log.Logger, m instr.Metrics, opts options.Options) error {
+func read(ctx context.Context, l log.Logger, m instr.Metrics, opts options.Options) (int, error) {
 	switch opts.EndpointType {
 	case options.MetricsEndpointType:
 		return metrics.Read(ctx, opts.ReadEndpoint, opts.Token, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m, l, opts.TLS)
@@ -201,10 +206,10 @@ func read(ctx context.Context, l log.Logger, m instr.Metrics, opts options.Optio
 		return logs.Read(ctx, opts.ReadEndpoint, opts.Token, opts.Labels, -1*opts.InitialQueryDelay, opts.Latency, m, l, opts.TLS)
 	}
 
-	return nil
+	return 0, fmt.Errorf("invalid endpoint-type: %v", opts.EndpointType)
 }
 
-func query(ctx context.Context, l log.Logger, q options.Query, opts options.Options) (promapiv1.Warnings, error) {
+func query(ctx context.Context, l log.Logger, q options.Query, opts options.Options) (int, promapiv1.Warnings, error) {
 	switch opts.EndpointType {
 	case options.MetricsEndpointType:
 		return metrics.Query(ctx, l, opts.ReadEndpoint, opts.Token, q, opts.TLS, opts.DefaultStep)
@@ -212,7 +217,7 @@ func query(ctx context.Context, l log.Logger, q options.Query, opts options.Opti
 		return logs.Query(ctx, l, opts.ReadEndpoint, opts.Token, q, opts.TLS, opts.DefaultStep)
 	}
 
-	return nil, nil
+	return 0, nil, fmt.Errorf("invalid endpoint-type: %v", opts.EndpointType)
 }
 
 func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opts options.Options, m instr.Metrics, cancel func()) {
@@ -241,7 +246,7 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 						return nil
 					default:
 						t := time.Now()
-						warn, err := query(ctx, l, q, opts)
+						httpCode, warn, err := query(ctx, l, q, opts)
 						duration := time.Since(t).Seconds()
 						queryType := q.GetType()
 						name := q.GetName()
@@ -254,7 +259,10 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 								"warnings", fmt.Sprintf("%#+v", warn),
 								"err", err,
 							)
-							m.CustomQueryErrors.WithLabelValues(queryType, name).Inc()
+							if httpCode != 0 {
+								m.CustomQueryErrors.WithLabelValues(queryType, name, strconv.Itoa(httpCode)).Inc()
+							}
+
 						} else {
 							level.Debug(l).Log("msg", "successfully executed specified query",
 								"type", queryType,
@@ -262,10 +270,13 @@ func addCustomQueryRunGroup(ctx context.Context, g *run.Group, l log.Logger, opt
 								"duration", duration,
 								"warnings", fmt.Sprintf("%#+v", warn),
 							)
-							m.CustomQueryLastDuration.WithLabelValues(queryType, name).Set(duration)
+
+							m.CustomQueryLastDuration.WithLabelValues(queryType, name, strconv.Itoa(httpCode)).Set(duration)
 						}
-						m.CustomQueryExecuted.WithLabelValues(queryType, name).Inc()
-						m.CustomQueryRequestDuration.WithLabelValues(queryType, name).Observe(duration)
+						if httpCode != 0 {
+							m.CustomQueryExecuted.WithLabelValues(queryType, name, strconv.Itoa(httpCode)).Inc()
+							m.CustomQueryRequestDuration.WithLabelValues(queryType, name, strconv.Itoa(httpCode)).Observe(duration)
+						}
 					}
 					time.Sleep(timeoutBetweenQueries)
 				}
@@ -370,7 +381,7 @@ func parseFlags(l log.Logger) (options.Options, error) {
 	opts := options.Options{}
 
 	flag.StringVar(&rawLogLevel, "log.level", "info", "The log filtering level. Options: 'error', 'warn', 'info', 'debug'.")
-	flag.StringVar(&rawEndpointType, "endpoint-type", "", "The endpoint type. Options: 'logs', 'metrics'.")
+	flag.StringVar(&rawEndpointType, "endpoint-type", "metrics", "The endpoint type. Options: 'logs', 'metrics'.")
 	flag.StringVar(&rawWriteEndpoint, "endpoint-write", "", "The endpoint to which to make remote-write requests.")
 	flag.StringVar(&rawReadEndpoint, "endpoint-read", "", "The endpoint to which to make query requests.")
 	flag.Var(&opts.Labels, "labels", "The labels in addition to '__name__' that should be applied to remote-write requests.")
@@ -389,7 +400,7 @@ func parseFlags(l log.Logger) (options.Options, error) {
 	flag.Float64Var(&opts.SuccessThreshold, "threshold", 0.9, "The percentage of successful requests needed to succeed overall. 0 - 1.")
 	flag.DurationVar(&opts.Latency, "latency", 15*time.Second,
 		"The maximum allowable latency between writing and reading.")
-	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 5*time.Second,
+	flag.DurationVar(&opts.InitialQueryDelay, "initial-query-delay", 10*time.Second,
 		"The time to wait before executing the first query.")
 	flag.DurationVar(&opts.DefaultStep, "step", 5*time.Minute, "Default step duration for range queries. "+
 		"Can be overridden if step is set in query spec.")
@@ -543,6 +554,7 @@ func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName s
 			if err != nil {
 				return fmt.Errorf("query %q in --queries-file content is invalid: %w", q.Name, err)
 			}
+
 			opts.Queries = append(opts.Queries, q)
 		}
 
@@ -550,6 +562,7 @@ func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName s
 			if len(q.Matchers) == 0 {
 				return fmt.Errorf("series query %q in --queries-file matchers cannot be empty", q.Name)
 			}
+
 			if len(q.Matchers) > 0 {
 				for _, s := range q.Matchers {
 					if _, err := parser.ParseMetricSelector(s); err != nil {
@@ -557,6 +570,7 @@ func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName s
 					}
 				}
 			}
+
 			opts.Queries = append(opts.Queries, q)
 		}
 
@@ -564,6 +578,7 @@ func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName s
 			if len(q.Label) > 0 && !model.LabelNameRE.MatchString(q.Label) {
 				return fmt.Errorf("label_values query %q in --queries-file label is invalid: %w", q.Name, err)
 			}
+
 			opts.Queries = append(opts.Queries, q)
 		}
 	}

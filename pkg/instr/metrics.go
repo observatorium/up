@@ -30,7 +30,7 @@ func RegisterMetrics(reg *prometheus.Registry) Metrics {
 		QueryResponses: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Name: "up_queries_total",
 			Help: "The total number of queries made.",
-		}, []string{"result"}),
+		}, []string{"result", "http_code"}),
 		QueryResponseDuration: promauto.With(reg).NewHistogram(prometheus.HistogramOpts{
 			Name: "up_queries_duration_seconds",
 			Help: "Duration of up queries.",
@@ -43,21 +43,21 @@ func RegisterMetrics(reg *prometheus.Registry) Metrics {
 		CustomQueryExecuted: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Name: "up_custom_query_executed_total",
 			Help: "The total number of custom specified queries executed.",
-		}, []string{"type", "query"}),
+		}, []string{"type", "query", "http_code"}),
 		CustomQueryRequestDuration: promauto.With(reg).NewHistogramVec(prometheus.HistogramOpts{
 			Name: "up_custom_query_duration_seconds",
 			Help: "Duration of custom specified queries",
 			// We deliberately chose quite large buckets as we want to be able to accurately measure heavy queries.
-			Buckets: prometheus.ExponentialBuckets(1, 1.15, 30),
-		}, []string{"type", "query"}),
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 5, 10, 15, 20, 25, 30, 45, 60},
+		}, []string{"type", "query", "http_code"}),
 		CustomQueryErrors: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Name: "up_custom_query_errors_total",
 			Help: "The total number of custom specified queries executed.",
-		}, []string{"type", "query"}),
+		}, []string{"type", "query", "http_code"}),
 		CustomQueryLastDuration: promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
 			Name: "up_custom_query_last_duration",
 			Help: "The duration of the query execution last time the query was executed successfully.",
-		}, []string{"type", "query"}),
+		}, []string{"type", "query", "http_code"}),
 	}
 
 	return m

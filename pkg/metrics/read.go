@@ -31,7 +31,7 @@ func Read(
 	m instr.Metrics,
 	l log.Logger,
 	tls options.TLS,
-) error {
+) (int, error) {
 	var (
 		rt  http.RoundTripper
 		err error
@@ -40,7 +40,7 @@ func Read(
 	if endpoint.Scheme == transport.HTTPS {
 		rt, err = transport.NewTLSTransport(l, tls)
 		if err != nil {
-			return errors.Wrap(err, "create round tripper")
+			return 0, errors.Wrap(err, "create round tripper")
 		}
 
 		rt = auth.NewBearerTokenRoundTripper(l, tp, rt)
@@ -53,7 +53,7 @@ func Read(
 		RoundTripper: rt,
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	labelSelectors := make([]string, len(labels))
@@ -62,16 +62,16 @@ func Read(
 	}
 
 	query := fmt.Sprintf("{%s}", strings.Join(labelSelectors, ","))
-
 	ts := time.Now().Add(ago)
-	value, _, err := api.Query(ctx, client, query, ts, false)
+
+	value, httpCode, _, err := api.Query(ctx, client, query, ts, false)
 	if err != nil {
-		return errors.Wrap(err, "query request failed")
+		return httpCode, errors.Wrap(err, "query request failed")
 	}
 
 	vec := value.(model.Vector)
 	if len(vec) != 1 {
-		return errors.Errorf("expected one metric, got %d", len(vec))
+		return httpCode, errors.Errorf("expected one metric, got %d", len(vec))
 	}
 
 	t := time.Unix(int64(vec[0].Value/1000), 0)
@@ -81,8 +81,8 @@ func Read(
 	m.MetricValueDifference.Observe(diffSeconds)
 
 	if diffSeconds > latency.Seconds() {
-		return errors.Errorf("metric value is too old: %2.fs", diffSeconds)
+		return httpCode, errors.Errorf("metric value is too old: %2.fs", diffSeconds)
 	}
 
-	return nil
+	return httpCode, nil
 }

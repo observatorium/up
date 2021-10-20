@@ -40,11 +40,11 @@ Usage of ./up:
   -endpoint-read string
     	The endpoint to which to make query requests.
   -endpoint-type string
-    	The endpoint type. Options: 'logs', 'metrics'.
+    	The endpoint type. Options: 'logs', 'metrics'. (default "metrics")
   -endpoint-write string
     	The endpoint to which to make remote-write requests.
   -initial-query-delay duration
-    	The time to wait before executing the first query. (default 5s)
+    	The time to wait before executing the first query. (default 10s)
   -labels value
     	The labels in addition to '__name__' that should be applied to remote-write requests.
   -latency duration

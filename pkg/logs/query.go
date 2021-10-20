@@ -27,12 +27,13 @@ func Query(
 	q options.Query,
 	tls options.TLS,
 	defaultStep time.Duration,
-) (promapiv1.Warnings, error) {
+) (int, promapiv1.Warnings, error) {
 	// TODO: avoid type casting when we need to support all query endpoints for logs.
 	query, ok := q.(*options.QuerySpec)
 	if !ok {
-		return nil, errors.New("Incorrect query type for logs queries")
+		return 0, nil, errors.New("Incorrect query type for logs queries")
 	}
+
 	level.Debug(l).Log("msg", "running specified query", "name", query.Name, "query", query.Query)
 
 	var (
@@ -44,7 +45,7 @@ func Query(
 	if endpoint.Scheme == transport.HTTPS {
 		rt, err = transport.NewTLSTransport(l, tls)
 		if err != nil {
-			return warn, errors.Wrap(err, "create round tripper")
+			return 0, warn, errors.Wrap(err, "create round tripper")
 		}
 
 		rt = auth.NewBearerTokenRoundTripper(l, t, rt)
@@ -72,36 +73,40 @@ func Query(
 
 	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		return warn, errors.Wrap(err, "creating request")
+		return 0, warn, errors.Wrap(err, "creating request")
 	}
 
 	res, err := client.Do(req.WithContext(ctx))
 	if err != nil {
-		return warn, errors.Wrap(err, "making request")
+		if res == nil {
+			return 0, warn, errors.Wrap(err, "making request")
+		}
+
+		return res.StatusCode, warn, errors.Wrap(err, "making request")
 	}
 
 	if res.StatusCode != http.StatusOK {
 		err = errors.Errorf(res.Status)
-		return warn, errors.Wrap(err, "non-200 status")
+		return res.StatusCode, warn, errors.Wrap(err, "non-200 status")
 	}
 
 	defer res.Body.Close()
 
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return warn, errors.Wrap(err, "reading response body")
+		return res.StatusCode, warn, errors.Wrap(err, "reading response body")
 	}
 
 	rr := &queryResponse{}
 
 	err = json.Unmarshal(body, rr)
 	if err != nil {
-		return warn, errors.Wrap(err, "unmarshalling response")
+		return res.StatusCode, warn, errors.Wrap(err, "unmarshalling response")
 	}
 
 	if len(rr.Data.Result) == 0 {
-		return warn, errors.Errorf("expected at min one log entry, got none")
+		return res.StatusCode, warn, errors.Errorf("expected at min one log entry, got none")
 	}
 
-	return warn, nil
+	return res.StatusCode, warn, nil
 }

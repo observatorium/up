@@ -26,7 +26,7 @@ func Query(
 	query options.Query,
 	tls options.TLS,
 	defaultStep time.Duration,
-) (promapiv1.Warnings, error) {
+) (int, promapiv1.Warnings, error) {
 	var (
 		warn promapiv1.Warnings
 		err  error
@@ -38,10 +38,11 @@ func Query(
 	// Copy URL to avoid modifying the passed value.
 	u := new(url.URL)
 	*u = *endpoint
+
 	if u.Scheme == transport.HTTPS {
 		tp, err := transport.NewTLSTransport(l, tls)
 		if err != nil {
-			return warn, errors.Wrap(err, "create round tripper")
+			return 0, warn, errors.Wrap(err, "create round tripper")
 		}
 
 		rt = auth.NewBearerTokenRoundTripper(l, t, tp)
@@ -55,7 +56,7 @@ func Query(
 	})
 	if err != nil {
 		err = fmt.Errorf("create new API client: %w", err)
-		return warn, err
+		return 0, warn, err
 	}
 
 	return query.Run(ctx, c, l, rt.TraceID, defaultStep)
