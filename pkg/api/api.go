@@ -222,7 +222,7 @@ func QueryRange(ctx context.Context, client promapi.Client, query string, r prom
 
 func Query(ctx context.Context, client promapi.Client, query string, ts time.Time,
 	cache bool) (model.Value, int, promapiv1.Warnings, error) {
-	u := client.URL(epQuery, nil)
+	u := client.URL("", nil)
 	q := u.Query()
 
 	q.Set("query", query)
