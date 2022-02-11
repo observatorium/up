@@ -48,7 +48,7 @@ func RegisterMetrics(reg *prometheus.Registry) Metrics {
 			Name: "up_custom_query_duration_seconds",
 			Help: "Duration of custom specified queries",
 			// We deliberately chose quite large buckets as we want to be able to accurately measure heavy queries.
-			Buckets: []float64{0.1, 0.25, 0.5, 1, 5, 10, 15, 20, 25, 30, 45, 60},
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 5, 10, 20, 30, 45, 60, 100, 120},
 		}, []string{"type", "query", "http_code"}),
 		CustomQueryErrors: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Name: "up_custom_query_errors_total",
