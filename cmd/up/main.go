@@ -314,11 +314,13 @@ func runPeriodically(ctx context.Context, opts options.Options, c *prometheus.Co
 		case <-ctx.Done():
 			t.Stop()
 
-			select {
-			// If it gets immediately cancelled, zero value of deadline won't cause a lock!
-			case <-time.After(time.Until(deadline)):
-				rCancel()
-			case <-rCtx.Done():
+			if rCtx != nil {
+				select {
+				// If it gets immediately cancelled, zero value of deadline won't cause a lock!
+				case <-time.After(time.Until(deadline)):
+					rCancel()
+				case <-rCtx.Done():
+				}
 			}
 
 			return reportResults(l, ch, c, opts.SuccessThreshold)
