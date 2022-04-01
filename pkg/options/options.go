@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-kit/kit/log/level"
+	"github.com/go-kit/log/level"
 	"github.com/observatorium/up/pkg/auth"
 	"github.com/pkg/errors"
 	"github.com/prometheus/common/model"

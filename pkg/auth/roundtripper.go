@@ -3,7 +3,7 @@ package auth
 import (
 	"net/http"
 
-	"github.com/go-kit/kit/log"
+	"github.com/go-kit/log"
 )
 
 type BearerTokenRoundTripper struct {
