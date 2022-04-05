@@ -1,5 +1,8 @@
 include .bingo/Variables.mk
 
+IMAGE?=quay.io/observatorium/up
+TAG?=$(shell echo "$(shell git rev-parse --abbrev-ref HEAD | tr / -)-$(shell date +%Y-%m-%d)-$(shell git rev-parse --short HEAD)")
+
 BIN_DIR ?= ./tmp/bin
 THANOS=$(BIN_DIR)/thanos
 LOKI ?= $(BIN_DIR)/loki
@@ -36,8 +39,8 @@ go-fmt:
 lint: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run -v -c .golangci.yml
 
-container: Dockerfile up
-	docker build -t quay.io/observatorium/up:latest .
+image:
+	docker build -t $(IMAGE):$(TAG) .
 
 .PHONY: clean
 clean:
@@ -51,6 +54,10 @@ tmp/help.txt: clean build
 .PHONY: README.md
 README.md: $(EMBEDMD) tmp/help.txt
 	$(EMBEDMD) -w README.md
+
+.PHONY: test
+test:
+	CGO_ENABLED=1 go test -v -race ./...
 
 .PHONY: test-integration
 test-integration: build test/integration.sh | $(THANOS) $(LOKI)
