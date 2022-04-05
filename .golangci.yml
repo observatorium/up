@@ -21,6 +21,7 @@ linters:
     # Sorted alphabetically.
     - bodyclose
     - deadcode
+    - depguard
     - errcheck
     - exportloopref
     - funlen
@@ -43,7 +44,8 @@ linters:
 
 linters-settings:
   errcheck:
-    exclude: .errcheck_excludes
+    exclude-functions:
+      - '(github.com/go-kit/log.Logger).Log'
   lll:
     line-length: 140
   funlen:
