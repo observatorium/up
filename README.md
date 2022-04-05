@@ -12,7 +12,7 @@ It can also read the log back from a specified endpoint and compare the number o
 
 When the given duration is greater than 0s, UP will evaluate number of errors and will exit with a non-zero code if the ratio is greater than the specified threshold.
 
-[![Build Status](https://cloud.drone.io/api/badges/observatorium/up/status.svg)](https://cloud.drone.io/observatorium/up)
+[![Build Status](https://github.com/observatorium/up/actions/workflows/checks.yaml/badge.svg?branch=master)](https://github.com/observatorium/up/actions/workflows/checks.yaml)
 
 ## Getting Started
 
