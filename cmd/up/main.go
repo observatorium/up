@@ -111,14 +111,14 @@ func main() { //nolint:golint,funlen
 
 			return runPeriodically(ctx, opts, m.RemoteWriteRequests, l, ch, func(rCtx context.Context) {
 				t := time.Now()
-				err := write(rCtx, l, opts)
+				httpCode, err := write(rCtx, l, opts)
 				duration := time.Since(t).Seconds()
 				m.RemoteWriteRequestDuration.Observe(duration)
 				if err != nil {
-					m.RemoteWriteRequests.WithLabelValues(labelError).Inc()
+					m.RemoteWriteRequests.WithLabelValues(labelError, strconv.Itoa(httpCode)).Inc()
 					level.Error(l).Log("msg", "failed to make request", "err", err)
 				} else {
-					m.RemoteWriteRequests.WithLabelValues(labelSuccess).Inc()
+					m.RemoteWriteRequests.WithLabelValues(labelSuccess, strconv.Itoa(httpCode)).Inc()
 				}
 			})
 		}, func(_ error) {
@@ -187,7 +187,7 @@ func main() { //nolint:golint,funlen
 	level.Info(l).Log("msg", "up completed its mission!")
 }
 
-func write(ctx context.Context, l log.Logger, opts options.Options) error {
+func write(ctx context.Context, l log.Logger, opts options.Options) (int, error) {
 	switch opts.EndpointType {
 	case options.MetricsEndpointType:
 		return metrics.Write(ctx, opts.WriteEndpoint, opts.Token, metrics.Generate(opts.Labels), l, opts.TLS,
@@ -196,7 +196,7 @@ func write(ctx context.Context, l log.Logger, opts options.Options) error {
 		return logs.Write(ctx, opts.WriteEndpoint, opts.Token, logs.Generate(opts.Labels, opts.Logs), l, opts.TLS)
 	}
 
-	return nil
+	return 0, fmt.Errorf("invalid endpoint-type: %v", opts.EndpointType)
 }
 
 func read(ctx context.Context, l log.Logger, m instr.Metrics, opts options.Options) (int, error) {
