@@ -22,7 +22,7 @@ func RegisterMetrics(reg *prometheus.Registry) Metrics {
 		RemoteWriteRequests: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Name: "up_remote_writes_total",
 			Help: "Total number of remote write requests.",
-		}, []string{"result"}),
+		}, []string{"result", "http_code"}),
 		RemoteWriteRequestDuration: promauto.With(reg).NewHistogram(prometheus.HistogramOpts{
 			Name: "up_remote_writes_duration_seconds",
 			Help: "Duration of remote write requests.",

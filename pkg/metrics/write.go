@@ -20,7 +20,7 @@ import (
 
 // Write executes a remote-write against Prometheus sending a set of labels and metrics to store.
 func Write(ctx context.Context, endpoint *url.URL, t auth.TokenProvider, wreq proto.Message, l log.Logger, tls options.TLS,
-	tenantHeader string, tenant string) error {
+	tenantHeader string, tenant string) (int, error) {
 	var (
 		buf []byte
 		err error
@@ -32,7 +32,7 @@ func Write(ctx context.Context, endpoint *url.URL, t auth.TokenProvider, wreq pr
 	if endpoint.Scheme == transport.HTTPS {
 		rt, err = transport.NewTLSTransport(l, tls)
 		if err != nil {
-			return errors.Wrap(err, "create round tripper")
+			return 0, errors.Wrap(err, "create round tripper")
 		}
 	} else {
 		rt = http.DefaultTransport
@@ -42,17 +42,17 @@ func Write(ctx context.Context, endpoint *url.URL, t auth.TokenProvider, wreq pr
 
 	buf, err = proto.Marshal(wreq)
 	if err != nil {
-		return errors.Wrap(err, "marshalling proto")
+		return 0, errors.Wrap(err, "marshalling proto")
 	}
 
 	req, err = http.NewRequest("POST", endpoint.String(), bytes.NewBuffer(snappy.Encode(nil, buf)))
 	if err != nil {
-		return errors.Wrap(err, "creating request")
+		return 0, errors.Wrap(err, "creating request")
 	}
 
 	token, err := t.Get()
 	if err != nil {
-		return errors.Wrap(err, "retrieving token")
+		return 0, errors.Wrap(err, "retrieving token")
 	}
 
 	if token != "" {
@@ -65,17 +65,17 @@ func Write(ctx context.Context, endpoint *url.URL, t auth.TokenProvider, wreq pr
 
 	res, err = client.Do(req.WithContext(ctx)) //nolint:bodyclose
 	if err != nil {
-		return errors.Wrap(err, "making request")
+		return 0, errors.Wrap(err, "making request")
 	}
 
 	defer transport.ExhaustCloseWithLogOnErr(l, res.Body)
 
 	if res.StatusCode != http.StatusOK {
 		err = errors.Errorf(res.Status)
-		return errors.Wrap(err, "non-200 status")
+		return res.StatusCode, errors.Wrap(err, "non-200 status")
 	}
 
-	return nil
+	return res.StatusCode, nil
 }
 
 // Generate takes a set of labels and metrics key-value pairs and returns the payload to write metrics to Prometheus.
