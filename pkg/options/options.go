@@ -2,6 +2,7 @@ package options
 
 import (
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -89,6 +90,16 @@ func (la *labelArg) Set(v string) error {
 
 	return nil
 }
+
+// Sort ensures all labels are ordered, in line with how upstream Prometheus code guarantees
+// ordering. See https://github.com/prometheus/prometheus/pull/5372.
+func (la *labelArg) Sort() {
+	sort.Sort(la)
+}
+
+func (la *labelArg) Len() int           { return len(*la) }
+func (la *labelArg) Swap(i, j int)      { (*la)[i], (*la)[j] = (*la)[j], (*la)[i] }
+func (la *labelArg) Less(i, j int) bool { return (*la)[i].Name < (*la)[j].Name }
 
 type logs [][]string
 

@@ -469,6 +469,8 @@ func buildOptionsFromFlags(
 		Name:  "__name__",
 		Value: opts.Name,
 	})
+	// We need to ensure labels are sorted before we proceed.
+	opts.Labels.Sort()
 
 	opts.Token = tokenProvider(token, tokenFile)
 
