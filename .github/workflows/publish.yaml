@@ -16,6 +16,13 @@ jobs:
       - name: Checkout code into the Go module directory.
         uses: actions/checkout@v3
 
+      - name: Login to image registry
+        uses: docker/login-action@v2
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
 
