@@ -44,7 +44,9 @@ const (
 	labelError   = "error"
 )
 
-type callsFile struct {
+// CallsFile is a struct that represents the YAML file format for queries.
+// It is exported for other third party packages to use when generating their queries.
+type CallsFile struct {
 	Queries []options.QuerySpec  `yaml:"queries"`
 	Labels  []options.LabelSpec  `yaml:"labels"`
 	Series  []options.SeriesSpec `yaml:"series"`
@@ -544,7 +546,7 @@ func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName s
 			return fmt.Errorf("--queries-file is invalid: %w", err)
 		}
 
-		qf := callsFile{}
+		qf := CallsFile{}
 		err = yaml.Unmarshal(b, &qf)
 
 		if err != nil {
