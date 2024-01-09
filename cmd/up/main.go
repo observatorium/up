@@ -547,7 +547,7 @@ func parseQueriesFileName(opts *options.Options, l log.Logger, queriesFileName s
 		}
 
 		qf := CallsFile{}
-		err = yaml.Unmarshal(b, &qf)
+		err = yaml.Unmarshal(b, &qf) //nolint:typecheck
 
 		if err != nil {
 			return fmt.Errorf("--queries-file content is invalid: %w", err)
@@ -601,7 +601,7 @@ func parseLogsFileName(opts *options.Options, l log.Logger, logsFileName string)
 		}
 
 		lf := logsFile{}
-		err = yaml.Unmarshal(b, &lf)
+		err = yaml.Unmarshal(b, &lf) //nolint:typecheck
 
 		if err != nil {
 			return fmt.Errorf("--logs-file content is invalid: %w", err)
