@@ -33,6 +33,9 @@ generate: jsonnet-fmt ${MANIFESTS} README.md
 validate: $(KUBEVAL) $(MANIFESTS)
 	$(KUBEVAL) --ignore-missing-schemas $(MANIFESTS)/*.yaml
 
+.PHONY: tidy
+	go mod tidy -v
+
 .PHONY: go-fmt
 go-fmt:
 	@fmt_res=$$(gofmt -d -s $$(find . -type f -name '*.go' -not -path './jsonnet/vendor/*')); if [ -n "$$fmt_res" ]; then printf '\nGofmt found style issues. Please check the reported issues\nand fix them if necessary before submitting the code for review:\n\n%s' "$$fmt_res"; exit 1; fi

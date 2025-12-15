@@ -1,2 +1,2 @@
-golang-version=1.21
+golang-version=1.24
 image-repository=quay.io/observatorium/up
