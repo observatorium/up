@@ -86,7 +86,7 @@ func Query(
 	}
 
 	if res.StatusCode != http.StatusOK {
-		err = errors.Errorf(res.Status)
+		err = errors.New(res.Status)
 		return res.StatusCode, warn, errors.Wrap(err, "non-200 status")
 	}
 

@@ -23,7 +23,7 @@ all: build generate validate
 build: up
 
 .PHONY: up
-up: vendor
+up:
 	CGO_ENABLED=0 go build -v -ldflags '-w -extldflags '-static'' ./cmd/up
 
 .PHONY: generate
@@ -33,14 +33,12 @@ generate: jsonnet-fmt ${MANIFESTS} README.md
 validate: $(KUBEVAL) $(MANIFESTS)
 	$(KUBEVAL) --ignore-missing-schemas $(MANIFESTS)/*.yaml
 
-.PHONY: vendor
-vendor: go.mod go.sum
-	go mod tidy
-	go mod vendor
+.PHONY: tidy
+	go mod tidy -v
 
 .PHONY: go-fmt
 go-fmt:
-	@fmt_res=$$(gofmt -d -s $$(find . -type f -name '*.go' -not -path './vendor/*' -not -path './jsonnet/vendor/*')); if [ -n "$$fmt_res" ]; then printf '\nGofmt found style issues. Please check the reported issues\nand fix them if necessary before submitting the code for review:\n\n%s' "$$fmt_res"; exit 1; fi
+	@fmt_res=$$(gofmt -d -s $$(find . -type f -name '*.go' -not -path './jsonnet/vendor/*')); if [ -n "$$fmt_res" ]; then printf '\nGofmt found style issues. Please check the reported issues\nand fix them if necessary before submitting the code for review:\n\n%s' "$$fmt_res"; exit 1; fi
 
 .PHONY: lint
 lint: $(GOLANGCI_LINT)

@@ -16,25 +16,24 @@ jobs:
           - ubuntu-latest
     name: Lint
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6
     - name: Import environment variables from file
       run: cat ".github/env" >> $GITHUB_ENV
-    - uses: actions/setup-go@v3
+    - uses: actions/setup-go@v6
       with:
         go-version: '${{ env.golang-version }}'
-        cache: true
-    - run: make --always-make lint && git diff --exit-code
+    - run: make tidy && git diff --exit-code
+    - run: make --always-make tidy && git diff --exit-code
   generate:
     runs-on: ubuntu-latest
     name: Generate
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6
     - name: Import environment variables from file
       run: cat ".github/env" >> $GITHUB_ENV
-    - uses: actions/setup-go@v3
+    - uses: actions/setup-go@v6
       with:
         go-version: '${{ env.golang-version }}'
-        cache: true
     - run: make --always-make generate && git diff --exit-code
   build:
     runs-on: ${{ matrix.os }}
@@ -44,11 +43,10 @@ jobs:
           - ubuntu-latest
     name: Build the binary
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6
     - name: Import environment variables from file
       run: cat ".github/env" >> $GITHUB_ENV
-    - uses: actions/setup-go@v3
+    - uses: actions/setup-go@v6
       with:
         go-version: '${{ env.golang-version }}'
-        cache: true
     - run: make up

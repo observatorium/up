@@ -16,13 +16,12 @@ jobs:
           - ubuntu-latest
     name: Unit tests
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - name: Import environment variables from file
         run: cat ".github/env" >> $GITHUB_ENV
-      - uses: actions/setup-go@v3
+      - uses: actions/setup-go@v6
         with:
           go-version: '${{ env.golang-version }}'
-          cache: true
       - run: make test
   integration-tests:
     runs-on: ${{ matrix.os }}
@@ -32,10 +31,10 @@ jobs:
           - ubuntu-latest
     name: Integration tests
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - name: Import environment variables from file
         run: cat ".github/env" >> $GITHUB_ENV
-      - uses: actions/setup-go@v3
+      - uses: actions/setup-go@v6
         with:
           go-version: '${{ env.golang-version }}'
           cache: true

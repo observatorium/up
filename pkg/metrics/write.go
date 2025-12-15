@@ -71,7 +71,7 @@ func Write(ctx context.Context, endpoint *url.URL, t auth.TokenProvider, wreq pr
 	defer transport.ExhaustCloseWithLogOnErr(l, res.Body)
 
 	if res.StatusCode != http.StatusOK {
-		err = errors.Errorf(res.Status)
+		err = errors.New(res.Status)
 		return res.StatusCode, errors.Wrap(err, "non-200 status")
 	}
 
