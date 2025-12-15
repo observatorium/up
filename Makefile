@@ -20,7 +20,7 @@ MANIFESTS := ${EXAMPLES}/manifests
 
 all: build generate validate
 
-build: up
+build: up README.md
 
 .PHONY: up
 up:
@@ -61,13 +61,9 @@ clean:
 	-rm tmp/help.txt
 	-rm ./up
 
-tmp/help.txt: clean build
-	mkdir -p tmp
-	-./up --help >tmp/help.txt 2>&1
-
 .PHONY: README.md
-README.md: $(EMBEDMD) tmp/help.txt
-	$(EMBEDMD) -w README.md
+README.md: $(MDOX) up
+	$(MDOX) fmt $(@)
 
 .PHONY: test
 test:

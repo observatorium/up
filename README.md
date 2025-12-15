@@ -2,11 +2,11 @@
 
 UP is a simple client for testing Prometheus remote-write and Loki write requests.
 
-For a specified metric the client writes the metric at a chosen interval, where the value of the metric is always the current timestamp in milliseconds. 
+For a specified metric the client writes the metric at a chosen interval, where the value of the metric is always the current timestamp in milliseconds.
 
 It can also read the metric back from a specified endpoint and compare its value against the current time to determine the total write-read latency.
 
-For a specified log entry the client writes the log entry at a chosen interval for the value given. 
+For a specified log entry the client writes the log entry at a chosen interval for the value given.
 
 It can also read the log back from a specified endpoint and compare the number of results.
 
@@ -16,15 +16,13 @@ When the given duration is greater than 0s, UP will evaluate number of errors an
 
 ## Getting Started
 
-The easiest way to begin making remote write requests is to run the UP container.
-For example, to report an `up` metric every 10 seconds, run:
+The easiest way to begin making remote write requests is to run the UP container. For example, to report an `up` metric every 10 seconds, run:
 
 ```shell
 docker run --rm -p 8080:8080 quay.io/observatorium/up --endpoint-write=https://example.com/api/v1/receive --period=10s
 ```
 
-Note that the metric name and labels are customizable.
-For example, to report a metric named `foo` with a custom `bar` label, run:
+Note that the metric name and labels are customizable. For example, to report a metric named `foo` with a custom `bar` label, run:
 
 ```shell
 docker run --rm -p 8080:8080 quay.io/observatorium/up --endpoint-write=https://example.com/api/v1/receive --period=10s --name foo --labels 'bar="baz"'
@@ -32,8 +30,7 @@ docker run --rm -p 8080:8080 quay.io/observatorium/up --endpoint-write=https://e
 
 ## Usage
 
-[embedmd]:# (tmp/help.txt)
-```txt
+```txt mdox-exec="./up --help" mdox-expect-exit-code=2
 Usage of ./up:
   -duration duration
     	The duration of the up command to run until it stops. If 0 it will not stop until the process is terminated. (default 5m0s)
