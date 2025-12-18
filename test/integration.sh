@@ -9,20 +9,22 @@ result=1
 trap 'kill $(jobs -p); exit $result' EXIT
 
 (
-  ./tmp/bin/thanos receive \
+  ${THANOS} receive \
     --grpc-address=127.0.0.1:10901 \
     --http-address=127.0.0.1:10902 \
     --remote-write.address=127.0.0.1:19291 \
-    --log.level=debug \
+    --log.level=info \
+    --label=receive_replica=\"0\" \
     --tsdb.path="$(mktemp -d)"
 ) &
 
 (
-  ./tmp/bin/thanos query \
+  ${THANOS} query \
     --grpc-address=127.0.0.1:10911 \
     --http-address=127.0.0.1:9091 \
     --store=127.0.0.1:10901 \
-    --log.level=debug
+    --log.level=info \
+    --query.replica-label=receive_replica
 ) &
 
 (

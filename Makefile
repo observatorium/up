@@ -1,7 +1,6 @@
 include .bingo/Variables.mk
 
 BIN_DIR ?= ./tmp/bin
-THANOS=$(BIN_DIR)/thanos
 LOKI ?= $(BIN_DIR)/loki
 LOKI_VERSION ?= 1.5.0
 
@@ -70,8 +69,8 @@ test:
 	CGO_ENABLED=1 go test -v -race ./...
 
 .PHONY: test-integration
-test-integration: build test/integration.sh | $(THANOS) $(LOKI)
-	PATH=$$PATH:$$(pwd)/$(BIN_DIR) ./test/integration.sh
+test-integration: build test/integration.sh | $(LOKI) $(THANOS)
+	PATH=$$PATH:$$(pwd)/$(BIN_DIR) THANOS=$(THANOS) ./test/integration.sh
 
 .PHONY: ${MANIFESTS}
 ${MANIFESTS}: jsonnet/main.jsonnet jsonnet/*.libsonnet $(JSONNET) $(GOJSONTOYAML)
@@ -84,7 +83,7 @@ JSONNETFMT_CMD := $(JSONNETFMT) -n 2 --max-blank-lines 2 --string-style s --comm
 
 .PHONY: jsonnet-fmt
 jsonnet-fmt: | $(JSONNETFMT)
-	PATH=$$PATH:$(BIN_DIR):$(FIRST_GOPATH)/bin echo ${JSONNET_SRC} | xargs -n 1 -- $(JSONNETFMT_CMD) -i
+	echo ${JSONNET_SRC} | xargs -n 1 -- $(JSONNETFMT_CMD) -i
 
 .PHONY: format
 format: $(GOLANGCI_LINT) go-fmt jsonnet-fmt
@@ -92,11 +91,6 @@ format: $(GOLANGCI_LINT) go-fmt jsonnet-fmt
 
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
-
-$(THANOS): $(BIN_DIR)
-	wget -O ./tmp/thanos.tar.gz https://github.com/thanos-io/thanos/releases/download/v0.11.0/thanos-0.11.0.linux-amd64.tar.gz
-	tar xvfz ./tmp/thanos.tar.gz -C ./tmp
-	mv ./tmp/thanos-0.11.0.linux-amd64/thanos $@
 
 $(LOKI): $(BIN_DIR)
 	loki_pkg="loki-$$(go env GOOS)-$$(go env GOARCH)" && \

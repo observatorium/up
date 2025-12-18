@@ -53,3 +53,9 @@ $(MDOX): $(BINGO_DIR)/mdox.mod
 	@echo "(re)installing $(GOBIN)/mdox-v0.9.0"
 	@cd $(BINGO_DIR) && GOWORK=off $(GO) build -mod=mod -modfile=mdox.mod -o=$(GOBIN)/mdox-v0.9.0 "github.com/bwplotka/mdox"
 
+THANOS := $(GOBIN)/thanos-v0.39.2
+$(THANOS): $(BINGO_DIR)/thanos.mod
+	@# Install binary/ries using Go 1.14+ build command. This is using bwplotka/bingo-controlled, separate go module with pinned dependencies.
+	@echo "(re)installing $(GOBIN)/thanos-v0.39.2"
+	@cd $(BINGO_DIR) && GOWORK=off $(GO) build -mod=mod -modfile=thanos.mod -o=$(GOBIN)/thanos-v0.39.2 "github.com/thanos-io/thanos/cmd/thanos"
+
